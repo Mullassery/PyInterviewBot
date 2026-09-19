@@ -1,0 +1,32 @@
+# Rust
+/target/
+gateway/target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# Python
+ai-service/.venv/
+ai-service/__pycache__/
+**/__pycache__/
+*.pyc
+ai-service/.pytest_cache/
+ai-service/*.egg-info/
+
+# Node / Vite
+candidate-client/node_modules/
+candidate-client/dist/
+candidate-client/.vite/
+
+# Runtime data
+*.db
+*.db-journal
+ai-service/data/
+ai-service/models/*.onnx
+ai-service/models/*.onnx.json
+
+# OS
+.DS_Store
+
+# Env
+.env
+.env.local

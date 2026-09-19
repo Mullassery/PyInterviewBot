@@ -1,0 +1,125 @@
+:root {
+  color-scheme: light dark;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --bg: #0f1115;
+  --card: #1a1d24;
+  --text: #eef0f3;
+  --muted: #8b93a1;
+  --accent: #5b8cff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  color: var(--text);
+}
+
+#app {
+  width: 100%;
+  max-width: 420px;
+  padding: 24px;
+}
+
+.card {
+  background: var(--card);
+  border-radius: 16px;
+  padding: 40px 32px;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+}
+
+.card h1 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0 0 24px;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+.question {
+  font-size: 1.3rem;
+  line-height: 1.5;
+  min-height: 4.5em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.status-icon {
+  font-size: 2.5rem;
+  margin: 20px 0;
+}
+
+.pulse {
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.08); }
+}
+
+.status-label {
+  color: var(--accent);
+  font-weight: 500;
+  margin-bottom: 24px;
+}
+
+.timer {
+  color: var(--muted);
+  font-size: 0.95rem;
+  margin-bottom: 24px;
+}
+
+button {
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  padding: 14px 28px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  width: 100%;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button.secondary {
+  background: transparent;
+  border: 1px solid var(--muted);
+  color: var(--muted);
+  margin-top: 12px;
+}
+
+.meter {
+  height: 8px;
+  border-radius: 4px;
+  background: #2a2e38;
+  overflow: hidden;
+  margin: 20px 0;
+}
+
+.meter-fill {
+  height: 100%;
+  background: var(--accent);
+  width: 0%;
+  transition: width 60ms linear;
+}
+
+p.hint {
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}

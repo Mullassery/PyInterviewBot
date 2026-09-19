@@ -1,0 +1,35 @@
+[project]
+name = "pyinterviewbot-ai"
+version = "0.1.0"
+description = "Local ASR/LLM/TTS + evidence-engine orchestration service for PyInterviewBot"
+readme = "README.md"
+license = "Apache-2.0"
+authors = [
+    { name = "Georgi Mammen Mullassery", email = "mullassery@gmail.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "aiosqlite>=0.22.1",
+    "fastapi>=0.141.1",
+    "faster-whisper>=1.2.1",
+    "ollama>=0.6.2",
+    "piper-tts>=1.8.0",
+    "pydantic>=2.13.5",
+    "python-multipart>=0.0.32",
+    "uvicorn[standard]>=0.53.0",
+]
+
+[project.scripts]
+pyinterviewbot-ai = "pyinterviewbot_ai.main:main"
+
+[build-system]
+requires = ["uv_build>=0.11.32,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "websockets>=17.1",
+]
