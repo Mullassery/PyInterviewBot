@@ -24,21 +24,31 @@ GATEWAY_WS = "ws://127.0.0.1:8787/ws/interview"
 AI_SERVICE = "http://127.0.0.1:8000"
 
 ANSWERS = [
-    "We used Azure AI Search for vector retrieval over our document corpus, and Azure "
-    "OpenAI GPT-4 for generation. Azure AI Search handled semantic search over embeddings, "
-    "and the model just used whatever top-k chunks came back to generate the answer.",
-    "We used k equals five initially based on some offline evaluation. When retrieval "
-    "returned irrelevant documents, honestly the model would sometimes just hallucinate an "
-    "answer anyway using the irrelevant context, which was a real problem for us in production.",
-    "We added a relevance threshold on the search score, so if the top result was below a "
-    "cutoff we would tell the model there was no relevant context instead of forcing an "
-    "answer. That cut down hallucinations a lot.",
-    "First I would check A K S pod autoscaling and CPU and memory on the retrieval and "
-    "generation services. If that was fine I would look at Azure AI Search throughput limits "
-    "and whether we were getting rate limited, then check Azure OpenAI token per minute quota "
-    "since that is usually the real bottleneck at that scale.",
-    "We would watch pod CPU and memory utilization and the Kubernetes autoscaler events, and "
-    "monitor Azure Monitor for throttled search requests and latency percentiles.",
+    (
+        "We used Azure AI Search for vector retrieval over our document corpus, and Azure "
+        "OpenAI GPT-4 for generation. Azure AI Search handled semantic search over embeddings, "
+        "and the model just used whatever top-k chunks came back to generate the answer."
+    ),
+    (
+        "We used k equals five initially based on some offline evaluation. When retrieval "
+        "returned irrelevant documents, honestly the model would sometimes just hallucinate an "
+        "answer anyway using the irrelevant context, which was a real problem for us in production."
+    ),
+    (
+        "We added a relevance threshold on the search score, so if the top result was below a "
+        "cutoff we would tell the model there was no relevant context instead of forcing an "
+        "answer. That cut down hallucinations a lot."
+    ),
+    (
+        "First I would check A K S pod autoscaling and CPU and memory on the retrieval and "
+        "generation services. If that was fine I would look at Azure AI Search throughput limits "
+        "and whether we were getting rate limited, then check Azure OpenAI token per minute quota "
+        "since that is usually the real bottleneck at that scale."
+    ),
+    (
+        "We would watch pod CPU and memory utilization and the Kubernetes autoscaler events, and "
+        "monitor Azure Monitor for throttled search requests and latency percentiles."
+    ),
 ]
 
 BARGE_IN_PHRASE = "Sorry, can I clarify something first?"
@@ -51,7 +61,8 @@ async def synthesize_16k(text: str) -> bytes:
         resp.raise_for_status()
         pcm22k = resp.content
 
-    proc = subprocess.run(
+    proc = await asyncio.to_thread(
+        subprocess.run,
         [
             "ffmpeg", "-f", "s16le", "-ar", "22050", "-ac", "1", "-i", "pipe:0",
             "-f", "s16le", "-ar", "16000", "-ac", "1", "pipe:1",
@@ -157,7 +168,7 @@ async def run() -> None:
 async def main() -> None:
     try:
         await asyncio.wait_for(run(), timeout=240)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         print("\nTIMED OUT — session never reached 'completed'. Check gateway/ai-service logs.")
         raise SystemExit(1)
 

@@ -95,10 +95,18 @@ Grouped roughly by the original product spec's sections:
 
 ## CI
 
-- **No CI at all.** There's no `.github/workflows/` directory in this repo.
-  `cargo test`, `pytest` (once tests exist), `npm run build`, and
-  `tsc --noEmit` all pass locally but nothing runs automatically on push or
-  PR yet.
+- **`.github/workflows/ci.yml` runs on every push/PR to `main`:** gateway
+  (`cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`),
+  ai-service (`uv sync`, `ruff check`, an import sanity check), and
+  candidate-client (`tsc --noEmit`, `npm run build`).
+- **No `pytest` step** — ai-service still has zero automated tests (see
+  above), so there's nothing for pytest to run yet. The workflow has a
+  comment marking exactly where to add it once tests exist.
+- **`ai-service/scripts/e2e_ws_test.py` does not run in CI** — it needs
+  Ollama serving `qwen2.5:7b-instruct` and a downloaded Piper voice, which
+  a standard GitHub-hosted runner doesn't have. It's meant to be run
+  locally (see README); wiring up a CI runner with those models installed
+  is still open.
 - **No automated PyPI release workflow.** `pyinterviewbot-ai` 0.1.0 was
   published via a manual `twine upload`, not an Actions job (consistent
   with how other Mullassery repos currently handle releases).

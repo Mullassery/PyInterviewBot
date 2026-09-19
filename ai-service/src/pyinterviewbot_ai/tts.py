@@ -39,7 +39,7 @@ def _get_voice() -> PiperVoice:
 _SENTINEL = object()
 
 
-def _synthesize_worker(text: str, out_queue: "queue.Queue[object]") -> None:
+def _synthesize_worker(text: str, out_queue: queue.Queue[object]) -> None:
     try:
         voice = _get_voice()
         for chunk in voice.synthesize(text):
@@ -51,7 +51,7 @@ def _synthesize_worker(text: str, out_queue: "queue.Queue[object]") -> None:
 
 
 async def synthesize_stream(text: str) -> AsyncIterator[bytes]:
-    out_queue: "queue.Queue[object]" = queue.Queue()
+    out_queue: queue.Queue[object] = queue.Queue()
     thread = threading.Thread(target=_synthesize_worker, args=(text, out_queue), daemon=True)
     thread.start()
 

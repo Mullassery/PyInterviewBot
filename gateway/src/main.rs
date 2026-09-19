@@ -13,7 +13,9 @@ use ws_handler::AppState;
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
         .init();
 
     let ai_service_url =
@@ -29,6 +31,8 @@ async fn main() {
     let addr: SocketAddr = bind_addr.parse().expect("invalid GATEWAY_BIND address");
     tracing::info!(%addr, ai_service_url, "gateway listening");
 
-    let listener = tokio::net::TcpListener::bind(addr).await.expect("failed to bind");
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .expect("failed to bind");
     axum::serve(listener, app).await.expect("server error");
 }

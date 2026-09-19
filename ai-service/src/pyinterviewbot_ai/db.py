@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 import aiosqlite
@@ -66,7 +66,7 @@ async def connect():
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 async def create_session(session_id: UUID, claim: ResumeClaim) -> None:

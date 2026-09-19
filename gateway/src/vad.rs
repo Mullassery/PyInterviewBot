@@ -206,10 +206,12 @@ mod tests {
 
     #[test]
     fn reset_turn_clears_counters() {
-        let mut d = TurnDetector::default();
-        d.speech_run_ms = 500;
-        d.silence_run_ms = 200;
-        d.in_speech = true;
+        let mut d = TurnDetector {
+            speech_run_ms: 500,
+            silence_run_ms: 200,
+            in_speech: true,
+            ..Default::default()
+        };
         d.reset_turn();
         assert_eq!(d.speech_run_ms, 0);
         assert_eq!(d.silence_run_ms, 0);

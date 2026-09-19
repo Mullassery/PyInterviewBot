@@ -14,7 +14,10 @@ pub enum AiClientError {
     #[error("ai-service request failed: {0}")]
     Request(#[from] reqwest::Error),
     #[error("ai-service returned {status}: {body}")]
-    Status { status: reqwest::StatusCode, body: String },
+    Status {
+        status: reqwest::StatusCode,
+        body: String,
+    },
 }
 
 #[derive(Clone)]

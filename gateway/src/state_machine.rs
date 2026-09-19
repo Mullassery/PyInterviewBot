@@ -39,6 +39,8 @@ pub enum Event {
     /// VAD's end-of-turn heuristic fired (sustained silence after speech).
     CandidateTurnEnded,
     /// Buffered audio has been handed off to ai-service (ASR + agent turn).
+    /// Not yet emitted by ws_handler.rs — see ROADMAP_HONEST.md.
+    #[allow(dead_code)]
     ProcessingStarted,
     /// ai-service returned a decision on what to do next.
     TurnDecided,
@@ -46,13 +48,19 @@ pub enum Event {
     InterviewComplete,
     /// Candidate spoke while the AI was mid-sentence.
     BargeIn,
-    /// Candidate or operator paused the session.
+    /// Candidate or operator paused the session. No UI control or code path
+    /// triggers this yet — see ROADMAP_HONEST.md.
+    #[allow(dead_code)]
     Pause,
-    /// Resume from a paused session.
+    /// Resume from a paused session. Same as `Pause`, unreachable today.
+    #[allow(dead_code)]
     Resume,
     /// A recoverable failure occurred (ASR/agent/TTS call failed).
     Fault,
-    /// Recovered from ERROR_RECOVERY back into the loop.
+    /// Recovered from ERROR_RECOVERY back into the loop. ws_handler.rs uses
+    /// `StartSpeaking` for spoken recovery instead — this silent variant is
+    /// kept for a future non-spoken recovery path but isn't emitted yet.
+    #[allow(dead_code)]
     Recovered,
 }
 
@@ -186,7 +194,15 @@ mod tests {
 
     #[test]
     fn fault_from_any_active_state_goes_to_error_recovery() {
-        for s in [Initializing, AiSpeaking, Listening, CandidateSpeaking, Processing, FollowUpDecision, AiResponding] {
+        for s in [
+            Initializing,
+            AiSpeaking,
+            Listening,
+            CandidateSpeaking,
+            Processing,
+            FollowUpDecision,
+            AiResponding,
+        ] {
             assert_eq!(transition(s, Fault).unwrap(), ErrorRecovery);
         }
     }

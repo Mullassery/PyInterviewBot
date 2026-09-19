@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  rust:
+    name: gateway (Rust)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo fmt --check
+        run: cargo fmt --check
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test
+
+  ai-service:
+    name: ai-service (Python)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai-service
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: uv sync
+        run: uv sync
+
+      - name: ruff check
+        run: uv run ruff check .
+
+      - name: import sanity check
+        run: uv run python -c "from pyinterviewbot_ai.main import app; print('import OK')"
+
+      # No `pytest` step yet — ai-service has zero automated tests today
+      # (see ROADMAP_HONEST.md). Running pytest against an empty tests/
+      # directory would just be a step that always trivially "passes"
+      # without checking anything; add it back once real tests exist.
+      #
+      # ai-service/scripts/e2e_ws_test.py is the one real integration test
+      # that exists, but it needs Ollama serving qwen2.5:7b-instruct and a
+      # downloaded Piper voice — not something this runner has, so it's
+      # meant to be run locally (see README), not in CI.
+
+  candidate-client:
+    name: candidate-client (JS/TS)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: candidate-client
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: candidate-client/package-lock.json
+
+      - name: npm ci
+        run: npm ci
+
+      - name: type check
+        run: npx tsc --noEmit
+
+      - name: build
+        run: npm run build

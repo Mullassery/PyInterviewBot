@@ -4,6 +4,7 @@
 //!   - text (JSON) control frames: {"type":"state","state":"..."} |
 //!     {"type":"interrupt"} | {"type":"error","message":"..."}
 //!   - binary frames: raw PCM16LE mono 22050Hz TTS audio to play
+//!
 //! Inbound from the browser:
 //!   - binary frames: raw PCM16LE mono 16kHz microphone audio
 //!
@@ -93,11 +94,7 @@ async fn handle_socket(socket: WebSocket, app: AppState) {
     session.state = apply(&mut session, Event::StartSpeaking);
     let mut next_text = Some(start.question_text);
 
-    loop {
-        let Some(text) = next_text.take() else {
-            break;
-        };
-
+    while let Some(text) = next_text.take() {
         send_state_with_text(&mut sink, &session, Some(&text)).await;
         match speak(&app.ai, &mut session, &mut sink, &mut stream, &text).await {
             Ok(SpeakOutcome::Finished) => {
@@ -105,9 +102,14 @@ async fn handle_socket(socket: WebSocket, app: AppState) {
                 session.state = apply(&mut session, Event::FinishedSpeaking);
             }
             Ok(SpeakOutcome::Interrupted) => {
-                info!(utterance_buf_len = session.utterance_buf.len(), "speak outcome: Interrupted (barge-in)");
+                info!(
+                    utterance_buf_len = session.utterance_buf.len(),
+                    "speak outcome: Interrupted (barge-in)"
+                );
                 session.state = apply(&mut session, Event::BargeIn);
-                let _ = sink.send(Message::Text(r#"{"type":"interrupt"}"#.into())).await;
+                let _ = sink
+                    .send(Message::Text(r#"{"type":"interrupt"}"#.into()))
+                    .await;
                 session.state = apply(&mut session, Event::CandidateVoiceDetected);
             }
             Ok(SpeakOutcome::Closed) => return,
@@ -132,7 +134,10 @@ async fn handle_socket(socket: WebSocket, app: AppState) {
         send_state(&mut sink, &session).await;
 
         let utterance = std::mem::take(&mut session.utterance_buf);
-        info!(utterance_bytes = utterance.len(), "sending utterance for transcription");
+        info!(
+            utterance_bytes = utterance.len(),
+            "sending utterance for transcription"
+        );
         session.vad.reset_turn();
 
         let transcript = match app.ai.transcribe(utterance).await {
@@ -168,7 +173,14 @@ async fn handle_socket(socket: WebSocket, app: AppState) {
         if decision.is_complete {
             session.state = apply(&mut session, Event::StartSpeaking); // -> AiResponding
             send_state_with_text(&mut sink, &session, Some(&decision.ai_text)).await;
-            let _ = speak(&app.ai, &mut session, &mut sink, &mut stream, &decision.ai_text).await;
+            let _ = speak(
+                &app.ai,
+                &mut session,
+                &mut sink,
+                &mut stream,
+                &decision.ai_text,
+            )
+            .await;
             session.state = apply(&mut session, Event::InterviewComplete);
             send_state(&mut sink, &session).await;
             return;
@@ -326,15 +338,24 @@ async fn speak_recovery(
         }
         Ok(SpeakOutcome::Interrupted) => {
             session.state = apply(session, Event::BargeIn);
-            let _ = sink.send(Message::Text(r#"{"type":"interrupt"}"#.into())).await;
+            let _ = sink
+                .send(Message::Text(r#"{"type":"interrupt"}"#.into()))
+                .await;
             session.state = apply(session, Event::CandidateVoiceDetected);
             send_state(sink, session).await;
             Ok(true)
         }
         Ok(SpeakOutcome::Closed) => Ok(false),
         Err(e) => {
-            error!(?e, "ai-service unavailable during error recovery, closing session");
-            let _ = send_error(sink, "We're having trouble right now. Please refresh and try again.").await;
+            error!(
+                ?e,
+                "ai-service unavailable during error recovery, closing session"
+            );
+            let _ = send_error(
+                sink,
+                "We're having trouble right now. Please refresh and try again.",
+            )
+            .await;
             Err(())
         }
     }
