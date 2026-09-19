@@ -17,6 +17,15 @@ Traditional AI interviewer:  Ask → Answer → Score
 This platform:                Listen → Understand → Probe → Verify → Assess
 ```
 
+`ai-service` is also published on PyPI as
+[`pyinterviewbot-ai`](https://pypi.org/project/pyinterviewbot-ai/) — but
+`pip install pyinterviewbot-ai` alone gets you a FastAPI app hardcoded to
+one demo scenario, still expecting `ollama serve` + `qwen2.5:7b-instruct`,
+a separately-downloaded Piper voice, and `ffmpeg` on your PATH. It's not a
+general-purpose library; publishing it just makes the code installable
+without cloning the repo. Run it from this repo (see Setup below) unless
+you specifically want that.
+
 ## Stack
 
 - **Rust** (`gateway/`) — the real-time transport: WebSocket audio gateway,
