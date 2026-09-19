@@ -9,8 +9,9 @@ graph, and decides how to adaptively probe deeper.
 > **Status: working MVP slice, not a production product.** One demo
 > scenario (a "Senior AI Solution Architect" RAG-architecture interview) runs
 > genuinely end-to-end against real local models — nothing described below
-> is a stub. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for exactly
-> what's implemented vs. intentionally out of scope.
+> is a stub. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the
+> design and [`ROADMAP_HONEST.md`](ROADMAP_HONEST.md) for exactly what's
+> tested, what's built-but-unverified, and what isn't built yet.
 
 ```
 Traditional AI interviewer:  Ask → Answer → Score
