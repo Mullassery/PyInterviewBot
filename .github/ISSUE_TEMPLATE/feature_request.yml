@@ -1,0 +1,42 @@
+name: Feature request
+description: Suggest something new or propose closing a gap in ROADMAP_HONEST.md
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check `ROADMAP_HONEST.md`'s "Not built at all" section first —
+        many likely requests (multi-language, auth, voice persona
+        configuration, resume parsing, WebRTC transport, etc.) are already
+        tracked there as known, intentional gaps rather than surprises.
+        Linking this issue to the relevant bullet there is helpful.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: What can't you do today that this would let you do?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Which layer does this touch?
+      options:
+        - label: gateway (Rust) — transport/turn-taking only, no domain logic
+        - label: ai-service (Python) — ASR/LLM/TTS/evidence
+        - label: candidate-client (JS/TS)
+        - label: Cuts across the architecture's client/gateway/ai-service boundary (read docs/ARCHITECTURE.md first)

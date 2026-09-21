@@ -1,0 +1,66 @@
+name: Bug report
+description: Report something that's broken
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: check `ROADMAP_HONEST.md` — a lot of gaps are
+        documented there as "not built" or "built but untested," not bugs.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - gateway (Rust)
+        - ai-service (Python)
+        - candidate-client (JS/TS)
+        - Multiple / integration between components
+        - CI / repo tooling
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: |
+        Include exact commands. If this involves the real-time pipeline,
+        note whether you reproduced it via a real browser mic or via
+        `ai-service/scripts/e2e_ws_test.py`.
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Gateway (`RUST_LOG=info`), ai-service (uvicorn), or browser console output.
+      render: shell
+
+  - type: input
+    id: os
+    attributes:
+      label: OS / Rust / Python / Node versions
+      placeholder: "e.g. macOS 15, rustc 1.82, Python 3.11, Node 22"
+    validations:
+      required: true

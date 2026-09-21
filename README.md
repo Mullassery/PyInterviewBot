@@ -121,6 +121,13 @@ docs/
   ARCHITECTURE.md   Layered design, what's real vs. simplified, bugs found
 ```
 
+## Contributing / Security
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for how to set up and test
+changes, and [`SECURITY.md`](SECURITY.md) for the current, concrete
+security gaps (no auth, wildcard CORS, no TLS) — this is not remotely
+deployable as-is.
+
 ## License
 
 Apache-2.0 — see [`LICENSE`](LICENSE).

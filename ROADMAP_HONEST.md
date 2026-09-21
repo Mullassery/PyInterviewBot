@@ -5,7 +5,10 @@ but unverified, what's flat-out not built yet, and what's broken in CI.
 Cross-reference with [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the
 architectural rationale behind the scope cuts.
 
-Last updated: 2026-09-19, immediately after the initial MVP slice shipped.
+Last updated: 2026-09-22, after an independent OSS-maturity audit pass that
+re-ran everything below rather than trusting the 2026-09-19 version of this
+document. See "2026-09-22 audit pass" at the bottom for exactly what was
+re-verified and what new gaps were found.
 
 ## Built and verified working
 
@@ -118,3 +121,93 @@ Grouped roughly by the original product spec's sections:
   not for real usage volume
 - Candidate client's `onError` text rendering is wired up but has never
   actually been triggered/observed against a real failure
+
+## 2026-09-22 audit pass
+
+An independent OSS-maturity/documentation pass re-verified the claims in
+this document against the actual code and re-ran everything that could be
+re-run, rather than trusting the 2026-09-19 version. Nothing above was
+found to be false. What follows is new.
+
+### Re-verified, still true
+
+- `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and
+  `cargo test` all pass clean — 19/19 gateway unit tests, same set listed
+  above.
+- `ai-service`: `uv sync`, `uv run ruff check .`, and the
+  `from pyinterviewbot_ai.main import app` import sanity check all pass.
+  Confirmed `ai-service` still has zero `tests/` directory and zero
+  `pytest` tests.
+- `candidate-client`: `npm ci`, `npx tsc --noEmit`, `npm run build` all
+  pass clean.
+- `ai-service/scripts/e2e_ws_test.py` was actually re-run end-to-end
+  against real local Ollama (`qwen2.5:7b-instruct`), real faster-whisper,
+  and real Piper (not skipped, not mocked): barge-in fired and was
+  acknowledged by the gateway, 5/5 canned candidate turns were answered,
+  and the interview reached `is_complete` with a graceful closing remark.
+  This independently reconfirms the "Full real-time pipeline end-to-end"
+  claim above still holds.
+- `actionlint` run against `.github/workflows/ci.yml`: no findings.
+- `cargo audit` run against `Cargo.lock` (229 crates, RustSec advisory
+  DB): no advisories.
+- `npm audit` run against `candidate-client`: 0 vulnerabilities.
+- No secrets, API keys, or `.env` files found committed anywhere in the
+  repo (`git grep` for key/token/secret/password patterns and `sk-`-style
+  strings, plus a check of tracked files for `.env*`) — all clean.
+- No merge-conflict markers, no `|| true`/`|| echo`-style CI masking, no
+  hardcoded default secrets, no version ceilings blocking security patches
+  found in `Cargo.toml` or `pyproject.toml`.
+
+### New findings from this pass
+
+- **CORS is wildcard-open on ai-service.**
+  `ai-service/src/pyinterviewbot_ai/main.py:33` sets `allow_origins=["*"]`
+  (with `allow_methods=["*"]`, `allow_headers=["*"]`). Combined with the
+  already-documented lack of auth, this means any web page a user has open
+  can script a cross-origin request to `127.0.0.1:8000/sessions` and read
+  interview transcripts/evidence, if that port is reachable from the
+  browser. Not previously called out explicitly as its own item — folded
+  into "Authentication/authorization: none" above, but this is a distinct,
+  concrete line of code worth fixing on its own. Not fixed in this pass
+  (real behavior change, needs a decision on what origins to actually
+  allow) — needs a dedicated follow-up.
+- **No HTTP client timeout in the gateway's `AiClient`.**
+  `gateway/src/ai_client.rs:65` constructs `reqwest::Client::new()` with no
+  `.timeout(...)` configured. If `ai-service` hangs (e.g. Ollama stalls),
+  every outbound call the gateway makes to it — `start_session`,
+  `agent_turn`, `transcribe`, `synthesize_stream` — can block
+  indefinitely with no client-side cutoff, which would hang the whole
+  session's `tokio::select!` loop rather than failing over to
+  `speak_recovery()`'s error path. Not fixed in this pass (needs a
+  considered timeout value and retry/fallback behavior) — flagged for a
+  dedicated follow-up.
+- **No `pip-audit` (or equivalent) coverage for ai-service's Python
+  dependencies.** `pip-audit` wasn't available in the environment this
+  audit ran in, so `faster-whisper`, `ollama`, `piper-tts`, `fastapi`, and
+  the rest of `ai-service/pyproject.toml`'s dependencies have not been
+  checked against any vulnerability database. This is an open gap in
+  dependency-security coverage, not a clean result — do not read the
+  `cargo audit`/`npm audit` clean results above as implying the same for
+  Python.
+- **`gateway/src/state_machine.rs`'s `#[allow(dead_code)]` items are
+  legitimate, not lint-suppression debt.** `ProcessingStarted` (line 43),
+  `Pause`/`Resume` (lines 53/56), and `Recovered` (line 63) are annotated
+  and each has an inline comment explaining exactly why they're currently
+  unreachable (matches the `PAUSE`/`RESUME` gap already documented above).
+  Called out here only so a future contributor doesn't assume these are
+  unexplained lint suppressions needing cleanup — they're deliberate and
+  already tracked.
+- **`.github/dependabot.yml` did not exist before this pass** — dependency
+  updates for `cargo`, the `ai-service` `uv`/`pip` stack, `npm`, and the
+  CI workflow's own GitHub Actions versions were not automated at all.
+  Added in this pass.
+- **No `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`,
+  `CHANGELOG.md`, GitHub issue templates, or a PR template existed before
+  this pass.** All added in this pass; see each file for specifics
+  (`SECURITY.md` in particular documents the CORS/auth/TLS gaps above in
+  one place for anyone assessing whether to deploy this beyond localhost).
+
+Nothing above was fixed as code in this pass except the new
+documentation/scaffolding files themselves — the CORS and HTTP-timeout
+findings are real bugs/gaps that need deliberate follow-up work, not
+one-line fixes, per this pass's own ground rules.

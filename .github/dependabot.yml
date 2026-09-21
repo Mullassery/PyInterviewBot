@@ -1,0 +1,25 @@
+version: 2
+updates:
+  # Rust gateway
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # Python ai-service (uv-managed: pyproject.toml + uv.lock)
+  - package-ecosystem: "uv"
+    directory: "/ai-service"
+    schedule:
+      interval: "weekly"
+
+  # JS/TS candidate-client
+  - package-ecosystem: "npm"
+    directory: "/candidate-client"
+    schedule:
+      interval: "weekly"
+
+  # GitHub Actions workflows themselves
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

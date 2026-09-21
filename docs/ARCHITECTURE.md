@@ -82,6 +82,102 @@ candidate-client/ (Vite/TS)
      evidence, ever.
 ```
 
+## Component flow
+
+```mermaid
+sequenceDiagram
+    participant Candidate as Candidate browser<br/>(candidate-client)
+    participant Gateway as gateway (Rust)
+    participant AI as ai-service (Python)
+    participant Ollama
+    participant Whisper as faster-whisper
+    participant Piper
+
+    Candidate->>Gateway: WS connect
+    Gateway->>AI: POST /sessions
+    AI->>Ollama: decide_turn (opening question)
+    Ollama-->>AI: question_text
+    AI-->>Gateway: session_id, question_text
+    Gateway->>AI: POST /tts/synthesize
+    AI->>Piper: synthesize
+    Piper-->>AI: PCM16 chunks (streamed)
+    AI-->>Gateway: PCM16 chunks (streamed)
+    Gateway-->>Candidate: binary audio frames + {"type":"state","state":"ai_speaking"}
+
+    Candidate->>Gateway: binary mic audio (PCM16 16kHz)
+    Note over Gateway: VAD watches concurrently while<br/>still streaming AI audio (barge-in path)
+    Gateway-->>Candidate: {"type":"interrupt"} (if barge-in confirmed)
+
+    Note over Gateway: 700ms trailing silence = turn ended
+    Gateway->>AI: POST /asr/transcribe (buffered utterance)
+    AI->>Whisper: transcribe
+    Whisper-->>AI: transcript
+    AI-->>Gateway: transcript
+    Gateway->>AI: POST /sessions/{id}/turn (transcript)
+    AI->>Ollama: decide_turn (evidence_updates + next question/close)
+    Ollama-->>AI: ai_text, is_complete
+    AI-->>Gateway: ai_text, is_complete
+    Gateway->>AI: POST /tts/synthesize (ai_text)
+    AI-->>Gateway: PCM16 chunks (streamed)
+    Gateway-->>Candidate: binary audio frames + state
+
+    Note over Candidate,Gateway: Loop continues until is_complete,<br/>or MAX_TURNS (default 6) forces conclusion
+
+    participant Recruiter as Recruiter browser<br/>(candidate-client /recruiter)
+    Recruiter->>AI: GET /sessions, GET /sessions/{id}/summary<br/>(bypasses gateway entirely — no auth)
+```
+
+## Gateway session state machine
+
+Pure function, no IO, 19 unit tests (`gateway/src/state_machine.rs`).
+`Pause`/`Resume`/`Recovered` transitions exist and are unit tested but are
+never emitted by `ws_handler.rs` today (no UI control or code path
+triggers them) — included below for completeness, per `ROADMAP_HONEST.md`.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Initializing
+    Initializing --> AiSpeaking: StartSpeaking
+    Initializing --> ErrorRecovery: Fault
+
+    AiSpeaking --> Listening: FinishedSpeaking
+    AiSpeaking --> Interrupted: BargeIn
+    AiSpeaking --> ErrorRecovery: Fault
+    AiSpeaking --> Paused: Pause
+
+    Listening --> CandidateSpeaking: CandidateVoiceDetected
+    Listening --> Paused: Pause
+    Listening --> ErrorRecovery: Fault
+
+    CandidateSpeaking --> Processing: CandidateTurnEnded
+    CandidateSpeaking --> Paused: Pause
+    CandidateSpeaking --> ErrorRecovery: Fault
+
+    Processing --> FollowUpDecision: TurnDecided
+    Processing --> Completed: InterviewComplete
+    Processing --> ErrorRecovery: Fault
+
+    FollowUpDecision --> AiResponding: StartSpeaking
+    FollowUpDecision --> Completed: InterviewComplete
+    FollowUpDecision --> ErrorRecovery: Fault
+
+    AiResponding --> Listening: FinishedSpeaking
+    AiResponding --> Interrupted: BargeIn
+    AiResponding --> Completed: InterviewComplete
+    AiResponding --> ErrorRecovery: Fault
+    AiResponding --> Paused: Pause
+
+    Interrupted --> CandidateSpeaking: CandidateVoiceDetected
+
+    Paused --> Listening: Resume
+
+    ErrorRecovery --> Listening: Recovered
+    ErrorRecovery --> AiSpeaking: StartSpeaking
+    ErrorRecovery --> ErrorRecovery: Fault
+
+    Completed --> [*]
+```
+
 ## Two client surfaces, deliberately asymmetric
 
 - **Candidate** (`candidate-client`, served behind the gateway's WS
