@@ -29,12 +29,17 @@ committed — and this document must be updated to say so explicitly.
   `/tts/synthesize`) are open to any client that can reach the port. This
   includes the `/recruiter` view's data endpoints, which expose full
   interview transcripts and evidence.
-- **CORS is wildcard-open.** `ai-service/src/pyinterviewbot_ai/main.py:33`
-  sets `allow_origins=["*"]` (with `allow_methods=["*"]`,
-  `allow_headers=["*"]`) on the FastAPI app. Combined with no auth, any
-  page a user has open in their browser could script a request to
-  `http://127.0.0.1:8000/sessions` and read every session's transcript and
-  evidence, if the service is reachable from that browser.
+- **CORS wildcard — fixed 2026-09-22.** `ai-service/src/pyinterviewbot_ai/main.py`
+  used to set `allow_origins=["*"]`, letting any page in a user's browser
+  script a request to `http://127.0.0.1:8000/sessions`. It now reads a
+  configurable allowlist from `ALLOWED_ORIGINS` (comma-separated),
+  defaulting to the candidate-client's actual dev-server origins
+  (`http://localhost:5173`, `http://127.0.0.1:5173`) instead of `*`.
+  Verified with a CORS preflight test: the candidate-client's origin gets
+  `Access-Control-Allow-Origin` back, an arbitrary origin is rejected.
+  This is a mitigation, not authentication — the endpoints are still open
+  to any *same-allowed-origin or direct (non-browser)* client, so the
+  "no authentication or authorization anywhere" gap below still applies.
 - **No rate limiting or abuse protection** on any endpoint, gateway or
   ai-service.
 - **No TLS.** Both the gateway (`ws://`) and ai-service (`http://`) default

@@ -4,10 +4,26 @@
 //! it only knows this contract. That keeps the real-time transport layer
 //! independent of which AI providers are behind it (spec §31/§30).
 
+use std::time::Duration;
+
 use bytes::Bytes;
 use futures_util::Stream;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+/// Upper bound on a single ai-service round trip (`start_session`,
+/// `agent_turn`, `transcribe`, or `synthesize_stream`). Without this,
+/// `reqwest::Client::new()` never times out, so an ai-service hang (e.g.
+/// Ollama stalling) blocks the gateway's `tokio::select!` session loop
+/// forever instead of erroring out into `speak_recovery()`'s fallback
+/// phrase (see ws_handler.rs). 20s comfortably covers a full local LLM
+/// turn (qwen2.5:7b-instruct generating a multi-sentence reply) plus ASR
+/// transcription of a single candidate utterance, while still keeping a
+/// hung dependency from stalling the candidate's session indefinitely --
+/// generous relative to the VAD's own much shorter fixed-timing constants
+/// (`SILENCE_MS_TO_END_TURN` = 700ms in vad.rs) since this bounds a whole
+/// AI round trip, not a speech-detection heuristic.
+const AI_SERVICE_TIMEOUT: Duration = Duration::from_secs(20);
 
 #[derive(Debug, thiserror::Error)]
 pub enum AiClientError {
@@ -60,8 +76,18 @@ struct SynthesizeRequest {
 
 impl AiClient {
     pub fn new(base_url: impl Into<String>) -> Self {
+        Self::with_timeout(base_url, AI_SERVICE_TIMEOUT)
+    }
+
+    /// Split out from `new` so tests can use a short timeout instead of
+    /// waiting out the real `AI_SERVICE_TIMEOUT` against a deliberately
+    /// unresponsive server.
+    fn with_timeout(base_url: impl Into<String>, timeout: Duration) -> Self {
         Self {
-            http: reqwest::Client::new(),
+            http: reqwest::Client::builder()
+                .timeout(timeout)
+                .build()
+                .expect("reqwest client with a fixed timeout should always build"),
             base_url: base_url.into(),
         }
     }
@@ -132,5 +158,51 @@ impl AiClient {
             return Err(AiClientError::Status { status, body });
         }
         Ok(resp)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::net::TcpListener;
+    use tokio::time::Instant;
+
+    /// A hung ai-service must not block the caller forever: with a client
+    /// timeout configured, a request to a server that accepts the TCP
+    /// connection but never writes a response back should still error out
+    /// once the timeout elapses, instead of hanging indefinitely. This is
+    /// what lets `ws_handler.rs` reach `speak_recovery()` on an ai-service
+    /// stall rather than blocking the whole session loop.
+    #[tokio::test]
+    async fn request_times_out_instead_of_hanging_forever() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        // Accept connections and hold them open without ever responding.
+        tokio::spawn(async move {
+            while let Ok((socket, _)) = listener.accept().await {
+                // Keep the connection alive; never read/write/close it.
+                std::mem::forget(socket);
+            }
+        });
+
+        let short_timeout = Duration::from_millis(200);
+        let client = AiClient::with_timeout(format!("http://{addr}"), short_timeout);
+
+        let started = Instant::now();
+        let result = client.start_session().await;
+        let elapsed = started.elapsed();
+
+        match &result {
+            Err(AiClientError::Request(e)) if e.is_timeout() => {}
+            other => panic!("expected a timeout error, got: {other:?}"),
+        }
+        // Generous upper bound (10x the configured timeout) to keep this
+        // robust against slow/loaded CI machines while still proving we
+        // didn't hang indefinitely.
+        assert!(
+            elapsed < short_timeout * 10,
+            "request took {elapsed:?}, expected it to time out around {short_timeout:?}"
+        );
     }
 }

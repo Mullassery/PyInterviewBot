@@ -6,6 +6,24 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
 
 ## [Unreleased]
 
+### Security
+
+- Fixed wildcard CORS on `ai-service` (`main.py:33`): `allow_origins`
+  is now a configurable allowlist (`ALLOWED_ORIGINS` env var,
+  comma-separated), defaulting to the candidate-client's actual Vite dev
+  server origins (`http://localhost:5173`, `http://127.0.0.1:5173`)
+  instead of `"*"`. Verified with a `TestClient` CORS preflight: the
+  candidate-client's origin gets `Access-Control-Allow-Origin` back, an
+  arbitrary origin is rejected (400, no CORS header).
+- Fixed unbounded HTTP client in the gateway's `AiClient`
+  (`ai_client.rs:65`): `reqwest::Client::new()` had no timeout, so an
+  ai-service hang could block the session's `tokio::select!` loop
+  forever instead of reaching `speak_recovery()`. Now built via
+  `Client::builder().timeout(Duration::from_secs(20)).build()`. Added a
+  targeted test (`ai_client::tests::request_times_out_instead_of_hanging_forever`)
+  that proves a request against an unresponsive server errors out with a
+  timeout instead of hanging.
+
 ### Added
 
 - OSS project scaffolding: `CONTRIBUTING.md`, `SECURITY.md`,

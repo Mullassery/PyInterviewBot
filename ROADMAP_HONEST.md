@@ -160,27 +160,34 @@ found to be false. What follows is new.
 
 ### New findings from this pass
 
-- **CORS is wildcard-open on ai-service.**
-  `ai-service/src/pyinterviewbot_ai/main.py:33` sets `allow_origins=["*"]`
-  (with `allow_methods=["*"]`, `allow_headers=["*"]`). Combined with the
-  already-documented lack of auth, this means any web page a user has open
-  can script a cross-origin request to `127.0.0.1:8000/sessions` and read
-  interview transcripts/evidence, if that port is reachable from the
-  browser. Not previously called out explicitly as its own item — folded
-  into "Authentication/authorization: none" above, but this is a distinct,
-  concrete line of code worth fixing on its own. Not fixed in this pass
-  (real behavior change, needs a decision on what origins to actually
-  allow) — needs a dedicated follow-up.
-- **No HTTP client timeout in the gateway's `AiClient`.**
-  `gateway/src/ai_client.rs:65` constructs `reqwest::Client::new()` with no
-  `.timeout(...)` configured. If `ai-service` hangs (e.g. Ollama stalls),
-  every outbound call the gateway makes to it — `start_session`,
-  `agent_turn`, `transcribe`, `synthesize_stream` — can block
-  indefinitely with no client-side cutoff, which would hang the whole
-  session's `tokio::select!` loop rather than failing over to
-  `speak_recovery()`'s error path. Not fixed in this pass (needs a
-  considered timeout value and retry/fallback behavior) — flagged for a
-  dedicated follow-up.
+- **CORS was wildcard-open on ai-service — fixed 2026-09-22.**
+  `ai-service/src/pyinterviewbot_ai/main.py:33` used to set
+  `allow_origins=["*"]` (with `allow_methods=["*"]`, `allow_headers=["*"]`).
+  Combined with the already-documented lack of auth, this meant any web
+  page a user had open could script a cross-origin request to
+  `127.0.0.1:8000/sessions` and read interview transcripts/evidence, if
+  that port was reachable from the browser. Fixed by reading a
+  configurable allowlist from `ALLOWED_ORIGINS` (comma-separated),
+  defaulting to the candidate-client's real Vite dev-server origins
+  (`http://localhost:5173`, `http://127.0.0.1:5173`) instead of `*`.
+  Verified with a CORS-preflight test (`TestClient`): the candidate-client
+  origin gets `Access-Control-Allow-Origin` back, an arbitrary origin gets
+  400/no header. This is a mitigation, not authentication — see
+  `SECURITY.md` for why "no authentication" is still an open gap.
+- **No HTTP client timeout in the gateway's `AiClient` — fixed 2026-09-22.**
+  `gateway/src/ai_client.rs:65` used to construct `reqwest::Client::new()`
+  with no `.timeout(...)` configured, so an ai-service hang (e.g. Ollama
+  stalling) could block `start_session`/`agent_turn`/`transcribe`/
+  `synthesize_stream` indefinitely, hanging the session's
+  `tokio::select!` loop instead of failing over to `speak_recovery()`.
+  Fixed with `reqwest::Client::builder().timeout(Duration::from_secs(20)).build()`
+  (20s chosen to comfortably cover a full local LLM turn plus ASR, well
+  above the VAD's own 700ms silence-timeout constant, while still bounding
+  a hung dependency). Verified with a new test,
+  `ai_client::tests::request_times_out_instead_of_hanging_forever`, which
+  proves a request against a server that accepts the connection but never
+  responds errors out with a timeout rather than hanging (gateway test
+  suite is now 20/20, up from 19/19).
 - **No `pip-audit` (or equivalent) coverage for ai-service's Python
   dependencies.** `pip-audit` wasn't available in the environment this
   audit ran in, so `faster-whisper`, `ollama`, `piper-tts`, `fastapi`, and
@@ -207,7 +214,19 @@ found to be false. What follows is new.
   (`SECURITY.md` in particular documents the CORS/auth/TLS gaps above in
   one place for anyone assessing whether to deploy this beyond localhost).
 
-Nothing above was fixed as code in this pass except the new
-documentation/scaffolding files themselves — the CORS and HTTP-timeout
-findings are real bugs/gaps that need deliberate follow-up work, not
-one-line fixes, per this pass's own ground rules.
+Nothing above was fixed as code in the original 2026-09-22 audit pass
+except the new documentation/scaffolding files themselves — the CORS and
+HTTP-timeout findings were flagged as real bugs needing deliberate
+follow-up, not one-line fixes.
+
+## 2026-09-22 quick-fix pass
+
+A follow-up pass fixed both of the real security bugs the audit above
+flagged (CORS wildcard, missing HTTP client timeout) — see the "Fixed
+2026-09-22" notes inline in the two bullets above for exactly what
+changed and how each was verified. `pip-audit` coverage remains an open
+gap (tool still unavailable in this environment); no attempt was made to
+work around that. `cargo fmt --check`, `cargo clippy --all-targets -D
+warnings`, `cargo test` (20/20, up from 19/19 — one new targeted test for
+the timeout fix), `ruff check .`, and `npx tsc --noEmit` were all re-run
+clean after these changes.

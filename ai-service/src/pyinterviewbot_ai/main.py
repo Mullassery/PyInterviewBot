@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 from uuid import UUID
 
@@ -19,6 +20,20 @@ from .models import (
     TurnResponse,
 )
 
+# Default to the candidate-client's actual dev server origins (Vite's
+# default port, on both `localhost` and `127.0.0.1` since browsers treat
+# them as distinct origins). Override with a comma-separated list via
+# ALLOWED_ORIGINS for any other deployment (e.g. a different dev port or a
+# built/served client). Never falls back to "*" -- combined with zero auth,
+# a wildcard would let any page a user has open read transcripts/evidence
+# from this service if the port is reachable (see SECURITY.md).
+_DEFAULT_ALLOWED_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get("ALLOWED_ORIGINS", _DEFAULT_ALLOWED_ORIGINS).split(",")
+    if origin.strip()
+]
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -30,7 +45,7 @@ app = FastAPI(title="PyInterviewBot ai-service", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
