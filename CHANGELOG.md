@@ -8,13 +8,6 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
 
 ### Security
 
-- Fixed wildcard CORS on `ai-service` (`main.py:33`): `allow_origins`
-  is now a configurable allowlist (`ALLOWED_ORIGINS` env var,
-  comma-separated), defaulting to the candidate-client's actual Vite dev
-  server origins (`http://localhost:5173`, `http://127.0.0.1:5173`)
-  instead of `"*"`. Verified with a `TestClient` CORS preflight: the
-  candidate-client's origin gets `Access-Control-Allow-Origin` back, an
-  arbitrary origin is rejected (400, no CORS header).
 - Fixed unbounded HTTP client in the gateway's `AiClient`
   (`ai_client.rs:65`): `reqwest::Client::new()` had no timeout, so an
   ai-service hang could block the session's `tokio::select!` loop
@@ -39,6 +32,20 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
   `npm audit`, `tsc --noEmit`, `npm run build`, and the real
   `e2e_ws_test.py` end-to-end pipeline test were all independently
   re-run and passed as part of this pass.
+
+## [0.1.1] - 2026-09-22
+
+### Security
+
+- Fixed wildcard CORS on `ai-service` (`main.py:33`): `allow_origins`
+  is now a configurable allowlist (`ALLOWED_ORIGINS` env var,
+  comma-separated), defaulting to the candidate-client's actual Vite dev
+  server origins (`http://localhost:5173`, `http://127.0.0.1:5173`)
+  instead of `"*"`. Verified with a `TestClient` CORS preflight: the
+  candidate-client's origin gets `Access-Control-Allow-Origin` back, an
+  arbitrary origin is rejected (400, no CORS header).
+- `pyinterviewbot-ai` 0.1.1 published to PyPI (manual `twine upload`; no
+  automated release workflow exists).
 
 ## [0.1.0] - 2026-09-19
 
@@ -71,5 +78,6 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
   `speak()` returning `Finished` before TTS playback had actually finished
   (Piper synthesizes faster than real time).
 
-[Unreleased]: https://github.com/Mullassery/PyInterviewBot/compare/49018ce...HEAD
+[Unreleased]: https://github.com/Mullassery/PyInterviewBot/compare/4ab3ffe...HEAD
+[0.1.1]: https://github.com/Mullassery/PyInterviewBot/compare/49018ce...4ab3ffe
 [0.1.0]: https://github.com/Mullassery/PyInterviewBot/commits/49018ce
