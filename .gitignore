@@ -30,3 +30,5 @@ ai-service/models/*.onnx.json
 # Env
 .env
 .env.local
+
+graphify-out/

@@ -1,6 +1,6 @@
 # PyInterviewBot
 
-[![Grapify](https://img.shields.io/badge/Grapify-Code%20Scan-purple)](https://grapify.ai)
+[![Graphify](https://img.shields.io/badge/Graphify-knowledge%20graph-blue)](https://github.com/Graphify-Labs/graphify)
 
 A voice-first AI talent assessment platform. The candidate hears a question,
 answers by voice, and never sees a transcript, a score, or anything about
