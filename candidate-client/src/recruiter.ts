@@ -89,7 +89,7 @@ async function loadSummary(sessionId: string): Promise<void> {
   const evidenceRows = summary.evidence
     .map(
       (e) =>
-        `<tr><td>${e.node}</td><td>${statusBadge(e.status)}</td><td>${e.note}</td><td>turn ${e.turn_number}</td></tr>`,
+        `<tr><td>${escapeHtml(e.node)}</td><td>${statusBadge(e.status)}</td><td>${escapeHtml(e.note)}</td><td>turn ${e.turn_number}</td></tr>`,
     )
     .join("");
 
@@ -123,7 +123,7 @@ function statusBadge(status: string): string {
     not_addressed: "#8b93a1",
   };
   const color = colors[status] ?? "#8b93a1";
-  return `<span style="color:${color};font-weight:600">${status}</span>`;
+  return `<span style="color:${color};font-weight:600">${escapeHtml(status)}</span>`;
 }
 
 function escapeHtml(s: string): string {
