@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "outputs": {
+    "md": [
+      "ai_service.1.md",
+      "candidate_client.2.md",
+      "gateway.4.md",
+      "overview.md",
+      "tools.5.md"
+    ],
+    "html": [
+      "ai_service.1.html",
+      "candidate_client.2.html",
+      "gateway.4.html",
+      "overview.html",
+      "tools.5.html"
+    ]
+  }
+}

@@ -31,4 +31,4 @@ ai-service/models/*.onnx.json
 .env
 .env.local
 
-graphify-out/
+codeatlas-out/
