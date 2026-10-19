@@ -155,6 +155,16 @@ docs/
 - [CHANGELOG.md](CHANGELOG.md) — release history.
 - [SECURITY.md](SECURITY.md) — the current, concrete security gaps.
 
+## Known issues and deferred work
+
+**Blocked / failed:**
+- Auth/TLS, multi-scenario config, consent/retention, bias evaluation, CI E2E.
+
+**Rejected / deferred:**
+- Production hiring without compliance review.
+
+Full shipped/blocked/rejected detail: [`QUEUE_STATUS.md`](QUEUE_STATUS.md).
+
 ## Queue status
 
 Shipped, blocked/failed, and rejected work for this repository is documented in
