@@ -78,7 +78,9 @@ async def create_session(session_id: UUID, claim: ResumeClaim) -> None:
         await db.commit()
 
 
-async def append_transcript(session_id: UUID, turn_number: int, speaker: str, text: str) -> None:
+async def append_transcript(
+    session_id: UUID, turn_number: int, speaker: str, text: str
+) -> None:
     async with connect() as db:
         await db.execute(
             "INSERT INTO transcript_segments (session_id, turn_number, speaker, text, created_at) "
@@ -88,7 +90,9 @@ async def append_transcript(session_id: UUID, turn_number: int, speaker: str, te
         await db.commit()
 
 
-async def record_evidence(session_id: UUID, node: str, status: EvidenceStatus, note: str, turn_number: int) -> None:
+async def record_evidence(
+    session_id: UUID, node: str, status: EvidenceStatus, note: str, turn_number: int
+) -> None:
     async with connect() as db:
         await db.execute(
             "INSERT INTO evidence (session_id, competency, node, status, note, turn_number, created_at) "
@@ -109,8 +113,26 @@ async def set_turn_count(session_id: UUID, turn_count: int) -> None:
 
 async def mark_complete(session_id: UUID) -> None:
     async with connect() as db:
-        await db.execute("UPDATE sessions SET is_complete = 1 WHERE id = ?", (str(session_id),))
+        await db.execute(
+            "UPDATE sessions SET is_complete = 1 WHERE id = ?", (str(session_id),)
+        )
         await db.commit()
+
+
+async def delete_session(session_id: UUID) -> bool:
+    """Delete a session and all transcript/evidence rows (retention request)."""
+    async with connect() as db:
+        await db.execute(
+            "DELETE FROM evidence WHERE session_id = ?", (str(session_id),)
+        )
+        await db.execute(
+            "DELETE FROM transcript_segments WHERE session_id = ?", (str(session_id),)
+        )
+        cursor = await db.execute(
+            "DELETE FROM sessions WHERE id = ?", (str(session_id),)
+        )
+        await db.commit()
+        return cursor.rowcount > 0
 
 
 async def list_sessions() -> list[SessionListItem]:
@@ -136,7 +158,9 @@ async def list_sessions() -> list[SessionListItem]:
 async def get_session_row(session_id: UUID) -> aiosqlite.Row | None:
     async with connect() as db:
         db.row_factory = aiosqlite.Row
-        cursor = await db.execute("SELECT * FROM sessions WHERE id = ?", (str(session_id),))
+        cursor = await db.execute(
+            "SELECT * FROM sessions WHERE id = ?", (str(session_id),)
+        )
         return await cursor.fetchone()
 
 
@@ -149,7 +173,12 @@ async def get_transcript(session_id: UUID) -> list[TranscriptSegment]:
             (str(session_id),),
         )
         rows = await cursor.fetchall()
-        return [TranscriptSegment(turn_number=r["turn_number"], speaker=r["speaker"], text=r["text"]) for r in rows]
+        return [
+            TranscriptSegment(
+                turn_number=r["turn_number"], speaker=r["speaker"], text=r["text"]
+            )
+            for r in rows
+        ]
 
 
 async def get_evidence(session_id: UUID) -> list[EvidenceRecord]:

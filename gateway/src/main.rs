@@ -24,6 +24,9 @@ async fn main() {
 
     let state = AppState {
         ai: AiClient::new(ai_service_url.clone()),
+        api_key: std::env::var("GATEWAY_API_KEY")
+            .ok()
+            .filter(|k| !k.is_empty()),
     };
 
     let app = ws_handler::router(state).route("/health", axum::routing::get(|| async { "ok" }));

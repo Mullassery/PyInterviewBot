@@ -19,6 +19,15 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
 
 ### Added
 
+- API authentication for the ai-service (`PYINTERVIEWBOT_API_KEY`, `X-API-Key`
+  or `Authorization: Bearer`) and the gateway (`GATEWAY_API_KEY`). When no key
+  is configured, only loopback clients are accepted so a network-exposed
+  deployment fails closed; `/health` stays unauthenticated.
+- `DELETE /sessions/{id}` to remove a session and its transcript/evidence rows
+  for retention requests.
+- Deterministic, offline resume/JD parsing and grounded rubric generation
+  (`pyinterviewbot_ai.documents`, `POST /documents/parse`); optional PDF via
+  `pypdf`.
 - OSS project scaffolding: `CONTRIBUTING.md`, `SECURITY.md`,
   `CODE_OF_CONDUCT.md`, `CHANGELOG.md`, `.github/dependabot.yml`,
   `.github/ISSUE_TEMPLATE/`, `.github/pull_request_template.md`.

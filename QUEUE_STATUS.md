@@ -4,9 +4,12 @@ This file records what was shipped, what is blocked/failed, and what is rejected
 
 ## Shipped
 - No code changes; audit/bundle docs added.
+- API-key/Bearer auth for ai-service and gateway, loopback-only default.
+- Session deletion endpoint for retention (`DELETE /sessions/{id}`).
+- Deterministic resume/JD parsing and rubric generation (`POST /documents/parse`).
 
 ## Blocked / failed
-- Auth/TLS, multi-scenario config, consent/retention, bias evaluation, CI E2E.
+- TLS, multi-scenario config, consent policy, bias evaluation, CI E2E.
 
 ## Rejected / deferred
 - Production hiring without compliance review.

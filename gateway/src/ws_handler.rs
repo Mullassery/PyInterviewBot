@@ -15,8 +15,9 @@
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        State,
+        Query, State,
     },
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::get,
     Router,
@@ -25,6 +26,7 @@ use futures_util::{
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt,
 };
+use std::collections::HashMap;
 use std::time::Duration;
 
 use tracing::{error, info, warn};
@@ -50,6 +52,23 @@ fn audio_duration(bytes_sent: u64) -> Duration {
 #[derive(Clone)]
 pub struct AppState {
     pub ai: AiClient,
+    pub api_key: Option<String>,
+}
+
+fn authorized(
+    headers: &HeaderMap,
+    query: &HashMap<String, String>,
+    expected: &Option<String>,
+) -> bool {
+    let Some(expected) = expected else {
+        return true;
+    };
+    let header_token = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "));
+    let token = header_token.or_else(|| query.get("token").map(String::as_str));
+    token.is_some_and(|token| token == expected)
 }
 
 pub fn router(state: AppState) -> Router {
@@ -58,8 +77,17 @@ pub fn router(state: AppState) -> Router {
         .with_state(state)
 }
 
-async fn ws_upgrade(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
+async fn ws_upgrade(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    if !authorized(&headers, &query, &state.api_key) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
     ws.on_upgrade(move |socket| handle_socket(socket, state))
+        .into_response()
 }
 
 type Sink = SplitSink<WebSocket, Message>;

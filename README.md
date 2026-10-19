@@ -119,6 +119,51 @@ Then open `http://localhost:5173` — test your microphone, begin the interview,
 Open `http://localhost:5173/recruiter` in another tab to watch the transcript and evidence
 graph fill in as you go.
 
+### Gateway authentication
+
+The Rust WebSocket gateway now requires a token when `GATEWAY_API_KEY` is set:
+
+```bash
+GATEWAY_API_KEY=change-me cargo run -p gateway
+# ws://127.0.0.1:8787/ws/interview?token=change-me
+# or Authorization: Bearer change-me
+```
+
+If unset, the gateway is local-development mode; bind it to loopback and do
+not expose it. `/health` stays unauthenticated.
+
+## Authentication and retention
+
+Every non-health ai-service endpoint now requires authentication:
+
+- Set `PYINTERVIEWBOT_API_KEY` and send `X-API-Key: ...` or
+  `Authorization: Bearer ...`.
+- If the variable is unset, only loopback clients are accepted; a
+  network-exposed service fails closed instead of serving transcripts to
+  anyone who can reach the port.
+- `DELETE /sessions/{id}` deletes the session, transcript and evidence rows for
+  a retention request.
+
+`/health` remains unauthenticated for probes.
+
+## Resume/JD parsing and rubrics
+
+The interview engine is no longer limited to the seeded demo claim. The
+deterministic document module extracts skills from resume/JD text and builds a
+competency rubric grounded in actual resume sentences:
+
+```python
+from pyinterviewbot_ai.documents import build_rubric
+
+rubric = build_rubric(job_description_text, resume_text, max_competencies=4)
+for competency in rubric.competencies:
+    print(competency.name, competency.evidence_prompts)
+```
+
+The ai-service exposes `POST /documents/parse` with `{"text": ..., "kind":
+"resume", "job_description": ...}`. PDF parsing is optional via `pypdf`.
+No network/LLM call is involved, so claims cannot be hallucinated.
+
 ## Usage
 
 **Don't have a working browser mic handy? Run the real pipeline anyway.**
