@@ -165,11 +165,6 @@ docs/
 
 Full shipped/blocked/rejected detail: [`QUEUE_STATUS.md`](QUEUE_STATUS.md).
 
-## Queue status
-
-Shipped, blocked/failed, and rejected work for this repository is documented in
-[`QUEUE_STATUS.md`](QUEUE_STATUS.md).
-
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for how to set up and test changes, and
