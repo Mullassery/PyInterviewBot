@@ -113,6 +113,15 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
 - Managed-call exponential-backoff retries for retryable transport failures
   (`MANAGED_CALL_MAX_RETRIES`, `MANAGED_CALL_RETRY_BASE_MS`).
 
+### Security (dependency remediation)
+
+- Updated npm `vite` to `^8.3.5` and lockfile resolution of
+  `source-map-js` to 1.2.2, clearing all npm advisories.
+- Updated Rust `rustls` 0.23.46, `rustls-webpki` 0.103.16,
+  `webpki-root-certs` 1.0.10, `tokio` 1.54.1, and `yoke-derive` 0.8.4.
+- `cargo audit`, `npm audit`, and `pip-audit` now report no known
+  vulnerabilities.
+
 ### Security (2026-10-25, hardening increment)
 
 - Per-session tokens: `POST /sessions` returns a token, only its hash is

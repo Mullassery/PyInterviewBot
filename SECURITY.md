@@ -91,16 +91,14 @@ but reports will be read and acknowledged as soon as possible.
 
 ## Dependency security
 
-- `cargo audit` was run against `gateway`'s `Cargo.lock` on 2026-09-22:
-  no advisories reported (229 crates scanned against the RustSec advisory
-  database).
-- `npm audit` was run against `candidate-client`: 0 vulnerabilities
-  reported (small dependency surface — `typescript` + `vite` as
-  devDependencies only).
-- No `pip-audit` / equivalent has been run against `ai-service`'s Python
-  dependencies (`faster-whisper`, `ollama`, `piper-tts`, `fastapi`, `httpx`,
-  etc.) — the tool wasn't available in the environment this audit was done
-  in. This is an open gap, not a clean bill of health.
+- `cargo audit` was re-run on 2026-10-25 after dependency updates: no known
+  vulnerabilities. The previous `rustls`, `rustls-webpki`,
+  `webpki-root-certs`, `tokio`, and yanked `yoke-derive` findings were
+  remediated.
+- `npm audit` was re-run on 2026-10-25: 0 vulnerabilities. `vite` is 8.3.5 and
+  `source-map-js` resolves to 1.2.2.
+- `pip-audit` was run on 2026-10-25 against `ai-service`: no known
+  vulnerabilities in the resolved environment.
 - The live managed-call path is contract-tested against a mock HTTP transport
   only; it has not been security-tested against a live service.
 - Dependency updates are tracked via `.github/dependabot.yml` (cargo, npm,
