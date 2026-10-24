@@ -1,11 +1,4 @@
-"""Resume claim seeding.
-
-This MVP slice does not implement resume upload or a real resume parser
-(spec §15 describes claim extraction from an uploaded document generally —
-that's out of scope here). Instead it seeds the one claim used by the §36
-demo scenario. A future resume parser would produce `ResumeClaim` objects
-the same shape as this one; nothing downstream needs to change.
-"""
+"""Resume claim seeding for the built-in templates."""
 
 from dataclasses import dataclass
 
@@ -16,11 +9,28 @@ class ResumeClaim:
     text: str
 
 
-SEED_CLAIM = ResumeClaim(
-    competency="rag_architecture",
-    text="Designed an enterprise RAG platform using Azure OpenAI, Azure AI Search and AKS.",
-)
+SEED_CLAIMS: dict[str, ResumeClaim] = {
+    "rag_architecture": ResumeClaim(
+        competency="rag_architecture",
+        text="Designed an enterprise RAG platform using Azure OpenAI, Azure AI Search and AKS.",
+    ),
+    "distributed_systems": ResumeClaim(
+        competency="distributed_systems",
+        text="Led a Kafka-based distributed ingestion platform with retries and idempotent writes.",
+    ),
+    "data_engineering": ResumeClaim(
+        competency="data_engineering",
+        text="Built an Airflow and dbt data platform with quality checks and schema evolution.",
+    ),
+}
+
+SEED_CLAIM = SEED_CLAIMS["rag_architecture"]
 
 
-def seed_claim() -> ResumeClaim:
+def seed_claim(competency: str | None = None) -> ResumeClaim:
+    if competency and competency in SEED_CLAIMS:
+        return SEED_CLAIMS[competency]
     return SEED_CLAIM
+
+
+__all__ = ["SEED_CLAIM", "SEED_CLAIMS", "ResumeClaim", "seed_claim"]

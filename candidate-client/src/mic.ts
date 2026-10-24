@@ -4,10 +4,14 @@ export class Mic {
   private node: AudioWorkletNode | null = null;
   private analyser: AnalyserNode | null = null;
 
-  async start(onChunk: (pcm16: ArrayBuffer) => void): Promise<void> {
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-    });
+  async start(onChunk: (pcm16: ArrayBuffer) => void, deviceId?: string): Promise<void> {
+    const audio: MediaTrackConstraints = {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    };
+    if (deviceId) audio.deviceId = { exact: deviceId };
+    this.stream = await navigator.mediaDevices.getUserMedia({ audio });
 
     this.ctx = new AudioContext();
     await this.ctx.audioWorklet.addModule("/pcm-worklet.js");

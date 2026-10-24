@@ -1,5 +1,11 @@
 # Honest Status / Roadmap
 
+> **2026-10-25 update:** the provider-abstraction, mock-test, template, report,
+> audio-limit, and gateway-auth-forwarding gaps listed below were addressed in
+> this pass. See `docs/internal/BASELINE_AUDIT.md` and `CHANGELOG.md` for the
+> current state. Historical sections below are retained for context and are not
+> all current.
+
 This is the disclosure doc: what's actually verified working, what's built
 but unverified, what's flat-out not built yet, and what's broken in CI.
 Cross-reference with [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) for the
@@ -67,10 +73,16 @@ Grouped roughly by the original product spec's sections:
 - **Multi-competency evidence graph** — the graph exists for exactly one
   hardcoded competency; no competency-graph builder from a real job
   description
-- **Resume upload + real parsing + claim extraction** — one hardcoded seed
-  claim; no upload UI, no document parser, no LLM-based claim extraction
-- **JD parser** — not built
-- **Interview planner beyond one competency** — not built
+- ~~**Resume upload + real parsing + claim extraction**~~ **Partially built:**
+  `documents.py` extracts txt/md/rst (and PDF with `pypdf`), detects skills,
+  and grounds claim extraction in resume sentences. No upload UI and no
+  LLM-based extraction.
+- ~~**JD parser**~~ **Built:** `parse_document(..., kind="job_description")`
+  plus `build_rubric(jd_text, resume_text)` produce a deterministic,
+  JD-ordered competency rubric (`/documents/rubric` API endpoint).
+- **Interview planner beyond one competency** — the rubric supports multiple
+  competencies, but the live agent still drives one template competency at a
+  time.
 - **Explicit claim-verification status** distinct from evidence confidence
   — verification is currently implicit in evidence status, not a separate
   tracked "insufficient verification" outcome

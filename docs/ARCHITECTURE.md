@@ -9,6 +9,12 @@ This document describes what's actually implemented in this slice, how the
 three languages divide responsibility, and exactly where the implementation
 simplifies the full product spec (and why).
 
+> **2026-10-25 update:** the Python service now has provider-neutral ASR/TTS/LLM
+> contracts with `local` and `mock` implementations; a self-hosted Rust voice
+> runtime crate; a versioned interview-template engine; evidence-linked reports
+> with human review; and bounded audio/transport controls. See the sections at the end of
+> this document and `docs/internal/BASELINE_AUDIT.md`.
+
 ## Layers
 
 ```
@@ -233,3 +239,98 @@ that drives the actual gateway WebSocket protocol with real synthesized
 audio (candidate answers generated with the same local Piper voice,
 resampled to 16kHz, streamed at real-time pace) rather than mocking
 anything — see that file for how to rerun it.
+
+
+## Provider-neutral layer (2026-10-25)
+
+```
+ai-service interview agent (owns templates, sequencing, evidence, completion)
+        │ narrow Python protocols
+        ├── local   : faster-whisper + Ollama + Piper (existing default)
+        ├── mock    : deterministic offline ASR/TTS/LLM for CI and demos
+        └── native  : Rust speech studio + managed-call workflow in voice-runtime
+```
+
+Selection is explicit via `PYINTERVIEWBOT_ASR_PROVIDER`,
+`PYINTERVIEWBOT_TTS_PROVIDER`, and `PYINTERVIEWBOT_LLM_PROVIDER` (`local` or
+`mock`). Unknown values fail closed. The managed-call workflow is optional and
+server-only; the local path never requires an account or network service.
+
+The Rust `voice-runtime/` crate provides a self-hosted transport-independent
+runtime: provider traits with boxed async contracts, deterministic mock
+provider, sequenced normalized events, bounded audio/text, session capacity,
+cancellation, and idle sweeping. It also contains a native speech-studio core
+(WAV/PCM, resampling, session recording/transcription, engine contracts) and the
+managed-call workflow (server-side call API, webhook authentication, idempotent
+normalization). Neural inference remains behind replaceable providers; the
+runtime does not reimplement models.
+
+The agent still builds prompts and owns evidence. A provider never decides
+what competency is being assessed, when the interview ends, or what a report
+means.
+
+## Interview templates and evidence-linked reports (2026-10-25)
+
+- `templates.py` defines versioned templates (RAG architect, backend
+  reliability, data pipelines) with explicit evidence nodes, question banks,
+  turn limits, and prompts. The default RAG template preserves the existing
+  demo prompt.
+- `sessions.template_id` is persisted and migrated in place for existing SQLite
+  databases.
+- `GET /sessions/{id}/report` maps each rubric node to persisted transcript
+  turns, returns the candidate quote plus the model-written note explicitly
+  flagged as inference, and exposes coverage/uncertainty.
+- `POST /sessions/{id}/review` records append-only human corrections
+  (`confirm`, `reject`, `needs_more_evidence`).
+- Reports are decision-support only and always require human review. They do
+  not score accent, attractiveness, emotion, personality, protected traits, or
+  unrelated communication style.
+
+## Transport and audio bounds (2026-10-25)
+
+- `GATEWAY_MAX_UTTERANCE_BYTES` (default ~100s of 16kHz PCM16) bounds a turn;
+  WebSocket frame/message sizes are capped to the same order.
+- `GATEWAY_VAD_SILENCE_MS` configures the trailing-silence threshold.
+- `/asr/transcribe` rejects payloads over `PYINTERVIEWBOT_MAX_AUDIO_BYTES`
+  (default 10 MiB) with 413.
+- The gateway forwards `AI_SERVICE_API_KEY`/`PYINTERVIEWBOT_API_KEY` to
+  ai-service and honours `PYINTERVIEWBOT_TEMPLATE` when starting a session.
+- `/ready` performs an ai-service health probe; `/health` remains a local
+  liveness check.
+
+
+## Self-hosted Rust voice runtime (2026-10-25)
+
+`voice-runtime/` is a workspace crate, independent of the gateway's
+interview-specific FSM:
+
+- `VoiceProvider` trait: capabilities/health, start/end session, send audio,
+  speak, cancel speech, and poll normalized provider events.
+- `VoiceRuntime`: max-session capacity, per-session sequence numbers, bounded
+  PCM16 audio, text limits, interrupt/cancel, provider error normalization,
+  idle timeout sweeping, and a bounded broadcast event bus.
+- `MockVoiceProvider`: deterministic offline readiness, transcript, audio, and
+  completion events. No models, network, or credentials.
+- `VoiceState` transitions are a pure function with illegal-transition errors.
+- Tests cover lifecycle, audio/text limits, malformed audio, capacity, concurrent
+  sessions, sequence isolation, interruption idempotency, and idle timeout.
+
+The existing gateway still owns WebSocket/VAD/interview turn-taking. The runtime
+crate is the reusable voice-layer foundation; adopting it inside the gateway can
+be done incrementally without rewriting interview domain logic.
+
+
+## Native speech studio and managed-call workflow
+
+`voice-runtime/src/studio.rs` is the in-repo speech-studio implementation:
+audio formats, PCM16/WAV encode/decode, linear resampling, bounded text/audio,
+session lifecycle, cancellation, idle sweeping, and replaceable `SpeechEngine`
+contracts with a deterministic mock engine. It is not an adapter to an external
+desktop application.
+
+`voice-runtime/src/managed_call.rs` implements the optional managed-call
+workflow: a server-side client for call create/get/end, constant-time Bearer or
+HMAC webhook verification, bounded/idempotent event ingestion, and normalized
+provider events. Private credentials never enter browser/mobile code. The
+upstream managed platform is proprietary and not self-hosted; the local path is
+independent of it.

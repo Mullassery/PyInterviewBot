@@ -23,7 +23,15 @@ function renderCandidateView(root: HTMLElement) {
         You will answer using your microphone.
       </p>
       <div class="meter"><div class="meter-fill" id="meter-fill"></div></div>
+      <label class="hint" for="device-select">Microphone</label>
+      <select id="device-select"><option value="">Default microphone</option></select>
       <button id="test-mic-btn">Test Microphone</button>
+      <label class="consent">
+        <input type="checkbox" id="consent-check" />
+        I consent to my microphone audio being processed for this interview.
+        Audio is not recorded by this deployment; transcript and evidence are stored
+        for the interview and can be deleted.
+      </label>
       <button id="begin-btn" class="secondary" disabled>Begin Interview</button>
     </div>
   `;
@@ -32,8 +40,17 @@ function renderCandidateView(root: HTMLElement) {
   const testMicBtn = document.getElementById("test-mic-btn") as HTMLButtonElement;
   const beginBtn = document.getElementById("begin-btn") as HTMLButtonElement;
   const meterFill = document.getElementById("meter-fill") as HTMLDivElement;
+  const deviceSelect = document.getElementById("device-select") as HTMLSelectElement;
+  const consentCheck = document.getElementById("consent-check") as HTMLInputElement;
 
   let meterInterval: number | undefined;
+  let micTested = false;
+
+  function refreshBeginState() {
+    beginBtn.disabled = !(micTested && consentCheck.checked);
+  }
+
+  consentCheck.addEventListener("change", refreshBeginState);
 
   testMicBtn.addEventListener("click", async () => {
     testMicBtn.disabled = true;
@@ -43,9 +60,22 @@ function renderCandidateView(root: HTMLElement) {
       meterInterval = window.setInterval(() => {
         meterFill.style.width = `${Math.min(100, mic.level() * 300)}%`;
       }, 60);
-      beginBtn.disabled = false;
+      micTested = true;
+      refreshBeginState();
       testMicBtn.textContent = "Microphone working";
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const inputs = devices.filter((device) => device.kind === "audioinput");
+      deviceSelect.innerHTML =
+        '<option value="">Default microphone</option>' +
+        inputs
+          .map(
+            (device, index) =>
+              `<option value="${device.deviceId}">${device.label || `Microphone ${index + 1}`}</option>`,
+          )
+          .join("");
     } catch (err) {
+      micTested = false;
+      refreshBeginState();
       testMicBtn.textContent = "Microphone access denied — check browser permissions";
       testMicBtn.disabled = false;
     }
@@ -54,11 +84,11 @@ function renderCandidateView(root: HTMLElement) {
   beginBtn.addEventListener("click", () => {
     if (meterInterval) window.clearInterval(meterInterval);
     mic.stop();
-    startInterview(root);
+    startInterview(root, deviceSelect.value || undefined);
   });
 }
 
-function startInterview(root: HTMLElement) {
+function startInterview(root: HTMLElement, deviceId?: string) {
   root.innerHTML = `
     <div class="card">
       <h1>AI Interviewer</h1>
@@ -122,7 +152,7 @@ function startInterview(root: HTMLElement) {
       }
       if (!micStarted && (state === "listening" || state === "ai_speaking")) {
         micStarted = true;
-        await mic.start((chunk) => socket.sendAudio(chunk));
+        await mic.start((chunk) => socket.sendAudio(chunk), deviceId);
       }
       if (state === "completed") {
         if (timerInterval) window.clearInterval(timerInterval);

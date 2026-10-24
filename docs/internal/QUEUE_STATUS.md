@@ -1,4 +1,10 @@
-# Queue status — 2026-10-19
+# Queue status — 2026-10-19 (updated 2026-10-25)
+
+> **2026-10-25:** provider-neutral contracts, deterministic mock tests, templates,
+> evidence-linked reports/human review, gateway auth forwarding, and audio bounds
+> shipped. Remaining blocked items are TLS/WSS, per-session authorization,
+> rate limits, consent/retention policy, bias validation, and live-provider E2E.
+> See `docs/internal/BASELINE_AUDIT.md`.
 
 This file records what was shipped, what is blocked/failed, and what is rejected for this repository. It complements `AUDIT_FINDINGS.md`.
 

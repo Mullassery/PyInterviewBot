@@ -27,16 +27,20 @@ use futures_util::{
     SinkExt, StreamExt,
 };
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use tracing::{error, info, warn};
 
 use crate::ai_client::{AiClient, AiClientError};
-use crate::session::Session;
+use crate::session::{Session, SessionConfig};
 use crate::state_machine::{transition, Event};
 use crate::vad::VadEvent;
+use voice_runtime::{ManagedCallWorkflow, SpeechStudio};
 
 const FALLBACK_PHRASE: &str = "Sorry, I didn't quite catch that. Could you say that again?";
+const TOO_LONG_MESSAGE: &str =
+    "That answer was too long for this session. Please refresh and try a shorter answer.";
 
 /// Must match ai-service's `tts.SAMPLE_RATE`. Piper synthesizes faster than
 /// real-time, so `speak()` can't treat "all TTS bytes pushed to the socket"
@@ -53,9 +57,12 @@ fn audio_duration(bytes_sent: u64) -> Duration {
 pub struct AppState {
     pub ai: AiClient,
     pub api_key: Option<String>,
+    pub session_config: SessionConfig,
+    pub studio: Arc<SpeechStudio>,
+    pub managed_call: Option<Arc<ManagedCallWorkflow>>,
 }
 
-fn authorized(
+pub(crate) fn authorized(
     headers: &HeaderMap,
     query: &HashMap<String, String>,
     expected: &Option<String>,
@@ -74,6 +81,8 @@ fn authorized(
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/ws/interview", get(ws_upgrade))
+        .route("/ready", get(ready))
+        .merge(crate::native_voice::router())
         .with_state(state)
 }
 
@@ -86,7 +95,10 @@ async fn ws_upgrade(
     if !authorized(&headers, &query, &state.api_key) {
         return StatusCode::UNAUTHORIZED.into_response();
     }
-    ws.on_upgrade(move |socket| handle_socket(socket, state))
+    let frame_limit = state.session_config.max_utterance_bytes.max(64 * 1024);
+    ws.max_message_size(frame_limit)
+        .max_frame_size(frame_limit)
+        .on_upgrade(move |socket| handle_socket(socket, state))
         .into_response()
 }
 
@@ -97,11 +109,24 @@ enum SpeakOutcome {
     Finished,
     Interrupted,
     Closed,
+    TooLong,
 }
 
 enum TurnOutcome {
     TurnEnded,
     Closed,
+    TooLong,
+}
+
+fn capture_audio(session: &mut Session, bytes: &[u8]) -> Result<Vec<VadEvent>, ()> {
+    let events = session
+        .vad
+        .push_pcm16_capturing(bytes, &mut session.utterance_buf);
+    if session.utterance_limit_exceeded() {
+        Err(())
+    } else {
+        Ok(events)
+    }
 }
 
 async fn handle_socket(socket: WebSocket, app: AppState) {
@@ -116,7 +141,7 @@ async fn handle_socket(socket: WebSocket, app: AppState) {
         }
     };
 
-    let mut session = Session::new(start.session_id);
+    let mut session = Session::with_config(start.session_id, app.session_config);
     info!(session_id = %session.id, ai_session_id = %session.ai_session_id, "interview session started");
 
     session.state = apply(&mut session, Event::StartSpeaking);
@@ -141,6 +166,7 @@ async fn handle_socket(socket: WebSocket, app: AppState) {
                 session.state = apply(&mut session, Event::CandidateVoiceDetected);
             }
             Ok(SpeakOutcome::Closed) => return,
+            Ok(SpeakOutcome::TooLong) => return,
             Err(e) => {
                 warn!(?e, "tts/ai-service failure while speaking");
                 session.state = apply(&mut session, Event::Fault);
@@ -155,6 +181,10 @@ async fn handle_socket(socket: WebSocket, app: AppState) {
 
         match listen_for_turn(&mut session, &mut stream).await {
             TurnOutcome::Closed => return,
+            TurnOutcome::TooLong => {
+                let _ = send_error(&mut sink, TOO_LONG_MESSAGE).await;
+                return;
+            }
             TurnOutcome::TurnEnded => {}
         }
 
@@ -245,9 +275,16 @@ async fn speak(
             incoming = stream.next() => {
                 match incoming {
                     Some(Ok(Message::Binary(bytes))) => {
-                        let events = session.vad.push_pcm16_capturing(&bytes, &mut session.utterance_buf);
-                        if events.contains(&VadEvent::SpeechStarted) {
-                            return Ok(SpeakOutcome::Interrupted);
+                        match capture_audio(session, &bytes) {
+                            Ok(events) => {
+                                if events.contains(&VadEvent::SpeechStarted) {
+                                    return Ok(SpeakOutcome::Interrupted);
+                                }
+                            }
+                            Err(()) => {
+                                let _ = send_error(sink, TOO_LONG_MESSAGE).await;
+                                return Ok(SpeakOutcome::TooLong);
+                            }
                         }
                     }
                     Some(Ok(Message::Close(_))) | None => return Ok(SpeakOutcome::Closed),
@@ -292,9 +329,16 @@ async fn speak(
             incoming = stream.next() => {
                 match incoming {
                     Some(Ok(Message::Binary(bytes))) => {
-                        let events = session.vad.push_pcm16_capturing(&bytes, &mut session.utterance_buf);
-                        if events.contains(&VadEvent::SpeechStarted) {
-                            return Ok(SpeakOutcome::Interrupted);
+                        match capture_audio(session, &bytes) {
+                            Ok(events) => {
+                                if events.contains(&VadEvent::SpeechStarted) {
+                                    return Ok(SpeakOutcome::Interrupted);
+                                }
+                            }
+                            Err(()) => {
+                                let _ = send_error(sink, TOO_LONG_MESSAGE).await;
+                                return Ok(SpeakOutcome::TooLong);
+                            }
                         }
                     }
                     Some(Ok(Message::Close(_))) | None => return Ok(SpeakOutcome::Closed),
@@ -320,9 +364,10 @@ async fn listen_for_turn(session: &mut Session, stream: &mut Stream) -> TurnOutc
     while let Some(msg) = stream.next().await {
         match msg {
             Ok(Message::Binary(bytes)) => {
-                let events = session
-                    .vad
-                    .push_pcm16_capturing(&bytes, &mut session.utterance_buf);
+                let events = match capture_audio(session, &bytes) {
+                    Ok(events) => events,
+                    Err(()) => return TurnOutcome::TooLong,
+                };
                 // A barge-in already moved us into CandidateSpeaking before
                 // this function was called; a plain (non-interrupted) turn
                 // is still sitting in Listening until real speech starts.
@@ -374,6 +419,7 @@ async fn speak_recovery(
             Ok(true)
         }
         Ok(SpeakOutcome::Closed) => Ok(false),
+        Ok(SpeakOutcome::TooLong) => Ok(false),
         Err(e) => {
             error!(
                 ?e,
@@ -424,6 +470,14 @@ async fn send_state_with_text(sink: &mut Sink, session: &Session, text: Option<&
 async fn send_error(sink: &mut Sink, message: &str) -> Result<(), axum::Error> {
     let payload = serde_json::json!({ "type": "error", "message": message });
     sink.send(Message::Text(payload.to_string().into())).await
+}
+
+pub async fn ready(State(app): State<AppState>) -> impl IntoResponse {
+    if app.ai.health().await {
+        (StatusCode::OK, "ready")
+    } else {
+        (StatusCode::SERVICE_UNAVAILABLE, "ai-service unavailable")
+    }
 }
 
 fn state_label(state: crate::state_machine::SessionState) -> &'static str {

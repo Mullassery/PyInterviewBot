@@ -1,4 +1,5 @@
 mod ai_client;
+mod native_voice;
 mod session;
 mod state_machine;
 mod vad;
@@ -6,9 +7,31 @@ mod ws_handler;
 
 use std::net::SocketAddr;
 
+use std::sync::Arc;
+
 use ai_client::AiClient;
+use session::{SessionConfig, DEFAULT_MAX_UTTERANCE_BYTES};
 use tracing_subscriber::EnvFilter;
+use vad::DEFAULT_SILENCE_MS_TO_END_TURN;
+use voice_runtime::{
+    ManagedCallClient, ManagedCallConfig, ManagedCallWorkflow, MockSpeechEngine, SpeechStudio,
+    StudioConfig, WebhookVerifier,
+};
 use ws_handler::AppState;
+
+fn env_usize(name: &str, default: usize) -> usize {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(default)
+}
+
+fn env_u32(name: &str, default: u32) -> u32 {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(default)
+}
 
 #[tokio::main]
 async fn main() {
@@ -22,11 +45,44 @@ async fn main() {
         std::env::var("AI_SERVICE_URL").unwrap_or_else(|_| "http://127.0.0.1:8000".to_string());
     let bind_addr = std::env::var("GATEWAY_BIND").unwrap_or_else(|_| "127.0.0.1:8787".to_string());
 
+    let ai_service_api_key = std::env::var("AI_SERVICE_API_KEY")
+        .or_else(|_| std::env::var("PYINTERVIEWBOT_API_KEY"))
+        .ok()
+        .filter(|key| !key.is_empty());
+    let template_id = std::env::var("PYINTERVIEWBOT_TEMPLATE")
+        .ok()
+        .filter(|value| !value.is_empty());
+    let session_config = SessionConfig {
+        silence_ms: env_u32("GATEWAY_VAD_SILENCE_MS", DEFAULT_SILENCE_MS_TO_END_TURN),
+        max_utterance_bytes: env_usize("GATEWAY_MAX_UTTERANCE_BYTES", DEFAULT_MAX_UTTERANCE_BYTES),
+    };
+
+    let studio = Arc::new(SpeechStudio::new(
+        Arc::new(MockSpeechEngine::default()),
+        StudioConfig::default(),
+    ));
+    let managed_config = ManagedCallConfig::from_env();
+    let managed_call = ManagedCallClient::new(managed_config.clone())
+        .ok()
+        .map(|client| {
+            let max_webhook_bytes = managed_config.max_webhook_bytes;
+            Arc::new(ManagedCallWorkflow::new(
+                client,
+                WebhookVerifier::new(&managed_config),
+                max_webhook_bytes,
+            ))
+        });
+
     let state = AppState {
-        ai: AiClient::new(ai_service_url.clone()),
+        ai: AiClient::new(ai_service_url.clone())
+            .with_api_key(ai_service_api_key)
+            .with_template(template_id),
         api_key: std::env::var("GATEWAY_API_KEY")
             .ok()
             .filter(|k| !k.is_empty()),
+        session_config,
+        studio,
+        managed_call,
     };
 
     let app = ws_handler::router(state).route("/health", axum::routing::get(|| async { "ok" }));

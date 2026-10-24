@@ -42,7 +42,7 @@ jobs:
           enable-cache: true
 
       - name: uv sync
-        run: uv sync
+        run: uv sync --group dev
 
       - name: ruff check
         run: uv run ruff check .
@@ -50,15 +50,12 @@ jobs:
       - name: import sanity check
         run: uv run python -c "from pyinterviewbot_ai.main import app; print('import OK')"
 
-      # No `pytest` step yet — ai-service has zero automated tests today
-      # (see docs/internal/ROADMAP_HONEST.md). Running pytest against an empty tests/
-      # directory would just be a step that always trivially "passes"
-      # without checking anything; add it back once real tests exist.
-      #
-      # ai-service/scripts/e2e_ws_test.py is the one real integration test
-      # that exists, but it needs Ollama serving qwen2.5:7b-instruct and a
-      # downloaded Piper voice — not something this runner has, so it's
-      # meant to be run locally (see README), not in CI.
+      - name: pytest (deterministic mock providers)
+        run: uv run --group dev python -m pytest -q
+
+      # ai-service/scripts/e2e_ws_test.py is the live integration test. It
+      # needs Ollama serving qwen2.5:7b-instruct and a downloaded Piper voice,
+      # which this runner does not have, so it remains a local test.
 
   candidate-client:
     name: candidate-client (JS/TS)

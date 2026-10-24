@@ -15,11 +15,13 @@ NextAction = Literal["probe", "clarify", "challenge", "move_on", "simulate", "co
 
 class StartSessionRequest(BaseModel):
     resume_seed: bool = True
+    template_id: str | None = None
 
 
 class StartSessionResponse(BaseModel):
     session_id: UUID
     question_text: str
+    template_id: str = "rag_architect"
 
 
 class TurnRequest(BaseModel):
@@ -77,6 +79,7 @@ class SessionListItem(BaseModel):
     session_id: UUID
     created_at: str
     resume_claim: str
+    template_id: str = "rag_architect"
     is_complete: bool
     turn_count: int
 
@@ -86,7 +89,58 @@ class SessionSummary(BaseModel):
     surface (spec §24)."""
 
     session_id: UUID
+    template_id: str = "rag_architect"
     resume_claim: str
     is_complete: bool
     transcript: list[TranscriptSegment]
     evidence: list[EvidenceRecord]
+
+
+class ReviewRequest(BaseModel):
+    node: str
+    reviewer: str
+    decision: Literal["confirm", "reject", "needs_more_evidence"]
+    note: str = ""
+
+
+class ReviewCorrection(BaseModel):
+    node: str
+    reviewer: str
+    decision: Literal["confirm", "reject", "needs_more_evidence"]
+    note: str
+    created_at: str
+
+
+class EvidenceCitation(BaseModel):
+    node: str
+    status: EvidenceStatus
+    transcript_turn: int
+    quote: str
+    note: str
+    note_is_model_inference: bool = True
+    human_decision: Literal["confirm", "reject", "needs_more_evidence"] | None = None
+
+
+class NodeAssessment(BaseModel):
+    node: str
+    description: str
+    status: EvidenceStatus
+    evidence_strength: int | None = Field(default=None, ge=0, le=3)
+    max_evidence_strength: int = 3
+    uncertainty: Literal["low", "medium", "high"]
+    citations: list[EvidenceCitation] = Field(default_factory=list)
+    human_review: list[ReviewCorrection] = Field(default_factory=list)
+
+
+class SessionReport(BaseModel):
+    session_id: UUID
+    template_id: str
+    competency: str
+    generated_from: str = "persisted transcript and evidence"
+    node_assessments: list[NodeAssessment]
+    evidence_coverage: float = Field(ge=0.0, le=1.0)
+    contradictions: int
+    overall_uncertainty: Literal["low", "medium", "high"]
+    human_review_required: bool = True
+    decision_support_only: bool = True
+    limitations: list[str] = Field(default_factory=list)

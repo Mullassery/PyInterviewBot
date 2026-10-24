@@ -29,10 +29,30 @@ This platform:                Listen → Understand → Probe → Verify → Ass
 - **Rust real-time gateway** (`gateway/`): WebSocket audio transport, voice-activity
   detection, barge-in, and a deterministic, unit-tested session state machine that never
   depends on LLM latency for correctness.
-- **Local, open-source models only** (`ai-service/`): [faster-whisper](https://github.com/SYSTRAN/faster-whisper)
+- **Local, open-source models by default** (`ai-service/`): [faster-whisper](https://github.com/SYSTRAN/faster-whisper)
   for speech recognition, [Ollama](https://ollama.com) (`qwen2.5:7b-instruct`) for the
   interview agent, and [Piper](https://github.com/OHF-Voice/piper1-gpl) for text-to-speech.
   No API keys; nothing leaves your machine.
+- **Provider-neutral speech interfaces.** ASR/TTS/LLM are selected by environment
+  (`local` or `mock`) behind narrow contracts. Interview state and evidence stay in
+  PyInterviewBot; a provider is never the source of truth.
+- **Self-hosted Rust voice runtime** (`voice-runtime/`): session lifecycle, sequenced
+  normalized events, bounded audio, cancellation, idle timeouts, capacity limits, and a
+  deterministic mock provider, all in Rust with unit tests.
+- **Deterministic mock mode.** `PYINTERVIEWBOT_PROVIDER=mock` runs a complete interview,
+  report, and review flow with no models, network, or paid API. CI uses this path.
+- **Templates and evidence-linked reports.** Role-specific templates define explicit
+  competencies, question banks, and turn limits. `GET /sessions/{id}/report` links every
+  rubric node to transcript quotes, flags model notes as inference, exposes uncertainty,
+  and requires human review.
+- **Bounded real-time transport.** Configurable VAD silence, per-turn audio caps,
+  WebSocket frame/message limits, ai-service auth forwarding, playback-duration-aware TTS,
+  barge-in, and `/ready` dependency health checks.
+- **Native managed-call workflow.** The Rust runtime includes server-side call creation,
+  webhook authentication, idempotent event normalization, and provider event queuing for
+  operators who intentionally use a managed call provider. It is never required for the
+  local path and does not own interview state. See
+  [`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MATRIX.md).
 - **End-to-end integration test** (`ai-service/scripts/e2e_ws_test.py`) that drives the real
   gateway protocol with real synthesized audio — real VAD, barge-in, transcription, agent
   turns, and evidence extraction, nothing mocked.
@@ -48,25 +68,25 @@ This platform:                Listen → Understand → Probe → Verify → Ass
 
 ## What it is not
 
-- **Not a production product.** This is a working MVP slice with one demo scenario (a
-  "Senior AI Solution Architect" RAG-architecture interview) that runs genuinely end-to-end
-  against real local models. See [`docs/internal/ROADMAP_HONEST.md`](docs/internal/ROADMAP_HONEST.md) for exactly what's
-  tested, what's built-but-unverified, and what isn't built yet.
-- **Not remotely deployable as-is.** Per [`SECURITY.md`](SECURITY.md) there is no auth,
-  CORS is a wildcard, and there is no TLS.
+- **Not a production product.** This is a working MVP with three built-in templates and a
+  real local voice path. See [`docs/internal/ROADMAP_HONEST.md`](docs/internal/ROADMAP_HONEST.md)
+  and [`docs/internal/BASELINE_AUDIT.md`](docs/internal/BASELINE_AUDIT.md) for what is
+  verified versus still open.
+- **Not remotely deployable as-is.** Auth exists, but there is no TLS, no per-session
+  authorization, and no rate limiting. See [`SECURITY.md`](SECURITY.md) and
+  [`docs/SECURITY_MODEL.md`](docs/SECURITY_MODEL.md).
 - **Not a general-purpose Python library.** `ai-service` is published on PyPI as
   [`pyinterviewbot-ai`](https://pypi.org/project/pyinterviewbot-ai/), but installing it
-  alone gets you a FastAPI app hardcoded to the one demo scenario, still expecting
-  `ollama serve` + `qwen2.5:7b-instruct`, a separately-downloaded Piper voice, and `ffmpeg`
-  on your PATH. Run it from this repo unless you specifically want that.
-- **No automated Python/E2E tests in CI yet.** `ai-service` has zero automated tests today;
-  the real integration test needs Ollama and a downloaded Piper voice, so it is run locally,
-  not in CI.
+  alone still expects local model configuration. Run it from this repo unless you
+  specifically want that.
+- **No live E2E in CI.** CI runs deterministic mock-provider tests; the real integration
+  test needs Ollama and a downloaded Piper voice, so it is run locally.
 
 ## Project status
 
-**Working MVP / early prototype.** Version 0.1.0. The single demo scenario is real and
-runs end-to-end; everything beyond it should be treated as unverified. See
+**Working MVP / early prototype.** Version 0.1.1 plus the 2026-10-25 provider/report
+hardening. The default local path, deterministic mock path, and Rust voice runtime are
+tested; the optional managed-call provider path remains unverified. See
 [`docs/internal/ROADMAP_HONEST.md`](docs/internal/ROADMAP_HONEST.md) and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 Changes are tracked in [CHANGELOG.md](CHANGELOG.md).
 
@@ -129,21 +149,104 @@ GATEWAY_API_KEY=change-me cargo run -p gateway
 ```
 
 If unset, the gateway is local-development mode; bind it to loopback and do
-not expose it. `/health` stays unauthenticated.
+not expose it. `/health` stays unauthenticated; `/ready` checks ai-service.
+
+When ai-service requires a key, set the same value for the gateway as
+`AI_SERVICE_API_KEY` (or `PYINTERVIEWBOT_API_KEY`) so it can forward it:
+
+```bash
+PYINTERVIEWBOT_API_KEY=change-me GATEWAY_API_KEY=gw-secret cargo run -p gateway
+```
 
 ## Authentication and retention
 
-Every non-health ai-service endpoint now requires authentication:
+Every non-health ai-service endpoint requires authentication:
 
 - Set `PYINTERVIEWBOT_API_KEY` and send `X-API-Key: ...` or
   `Authorization: Bearer ...`.
 - If the variable is unset, only loopback clients are accepted; a
   network-exposed service fails closed instead of serving transcripts to
   anyone who can reach the port.
-- `DELETE /sessions/{id}` deletes the session, transcript and evidence rows for
-  a retention request.
+- `DELETE /sessions/{id}` deletes the session, transcript, evidence, and review
+  rows for a retention request.
 
-`/health` remains unauthenticated for probes.
+The gateway forwards its ai-service key automatically. `/health` remains
+unauthenticated for probes. This is still one global key, not per-session
+authorization; see [`docs/SECURITY_MODEL.md`](docs/SECURITY_MODEL.md).
+
+## Provider selection and mock mode
+
+```bash
+# Fully offline deterministic flow: no Ollama, Piper voice, or Whisper weights
+PYINTERVIEWBOT_PROVIDER=mock \
+  uv run uvicorn pyinterviewbot_ai.main:app --host 127.0.0.1 --port 8000
+
+# Or select providers individually
+PYINTERVIEWBOT_ASR_PROVIDER=local
+PYINTERVIEWBOT_TTS_PROVIDER=local
+PYINTERVIEWBOT_LLM_PROVIDER=local
+
+```
+
+`GET /providers` (authenticated) reports configured providers, capabilities,
+and health. The self-hosted Rust voice runtime lives in `voice-runtime/` and is
+built/tested with the workspace. The managed-call workflow is optional and is
+never required—see [`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MATRIX.md).
+
+## Native Rust voice endpoints
+
+The gateway exposes the in-repo Rust speech studio and optional managed-call
+workflow directly (same gateway auth: Bearer token or `?token=`):
+
+```bash
+# Studio lifecycle and speech
+curl -H "Authorization: Bearer $GATEWAY_API_KEY" \
+  http://127.0.0.1:8787/native/voice/health
+curl -H "Authorization: Bearer $GATEWAY_API_KEY" \
+  http://127.0.0.1:8787/native/voice/capabilities
+SID=$(curl -s -X POST -H "Authorization: Bearer $GATEWAY_API_KEY" \
+  http://127.0.0.1:8787/native/voice/sessions | jq -r .session_id)
+curl -H "Authorization: Bearer $GATEWAY_API_KEY" -H 'content-type: application/json' \
+  -X POST http://127.0.0.1:8787/native/voice/sessions/$SID/speak \
+  -d '{"text":"Tell me about the system."}' --output speech.pcm
+curl -H "Authorization: Bearer $GATEWAY_API_KEY" -H 'content-type: application/octet-stream' \
+  -X POST 'http://127.0.0.1:8787/native/voice/sessions/'$SID'/transcribe?sample_rate=16000' \
+  --data-binary @answer.pcm
+curl -X DELETE -H "Authorization: Bearer $GATEWAY_API_KEY" \
+  http://127.0.0.1:8787/native/voice/sessions/$SID
+
+# Optional managed-call workflow (server-only credentials)
+curl -H "Authorization: Bearer $GATEWAY_API_KEY" \
+  http://127.0.0.1:8787/native/managed-call/status
+```
+
+The default speech engine is the deterministic mock (`/native/voice/capabilities`
+reports `engine: "mock"`). Real local inference plugs into the `SpeechEngine`
+trait without changing the runtime, gateway, or interview domain. Configure the
+optional managed-call workflow with `MANAGED_CALL_API_KEY`,
+`MANAGED_CALL_BASE_URL`, and `MANAGED_CALL_WEBHOOK_SECRET` (plus
+`MANAGED_CALL_WEBHOOK_AUTH_MODE=bearer|hmac`); no provider account is required
+for the local path. Webhook bodies are size-limited, authenticated in constant
+time, and de-duplicated before normalization.
+
+## Templates, reports, and human review
+
+```bash
+# Start a specific template (default: rag_architect)
+curl -X POST http://127.0.0.1:8000/sessions \
+  -H "X-API-Key: change-me" -H "Content-Type: application/json" \
+  -d '{"template_id":"backend_engineer"}'
+
+# Evidence-linked report and append-only human correction
+curl http://127.0.0.1:8000/sessions/<id>/report -H "X-API-Key: change-me"
+curl -X POST http://127.0.0.1:8000/sessions/<id>/review \
+  -H "X-API-Key: change-me" -H "Content-Type: application/json" \
+  -d '{"node":"failure_handling","reviewer":"alice","decision":"confirm","note":"verified"}'
+```
+
+Available templates: `GET /templates`. Reports are decision-support only, always
+require human review, and do not evaluate accent, attractiveness, emotion,
+personality, protected traits, or unrelated communication style.
 
 ## Resume/JD parsing and rubrics
 
@@ -183,7 +286,9 @@ uv run python scripts/e2e_ws_test.py
 
 ```
 gateway/            Rust — audio gateway, VAD, session state machine
+voice-runtime/      Rust — provider contracts, runtime lifecycle, events, mocks
 ai-service/         Python — ASR/LLM/TTS orchestration, evidence engine, SQLite
+  providers/        local/mock speech/language contracts
   scripts/          e2e_ws_test.py — full real-pipeline integration test
 candidate-client/   Vite/TS — candidate voice UI + /recruiter view
 docs/
@@ -197,15 +302,24 @@ docs/
 - [docs/internal/ROADMAP_HONEST.md](docs/internal/ROADMAP_HONEST.md) — exactly what's tested, built-but-unverified, and
   not built.
 - [CHANGELOG.md](CHANGELOG.md) — release history.
-- [SECURITY.md](SECURITY.md) — the current, concrete security gaps.
+- [SECURITY.md](SECURITY.md) — reporting and current security gaps.
+- [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md) — threat model and required controls.
+- [docs/CAPABILITY_MATRIX.md](docs/CAPABILITY_MATRIX.md) — native Rust runtime vs local
+  models, licences and supported capabilities.
+- [docs/adr/](docs/adr/) — architecture decision records.
+- [docs/internal/BASELINE_AUDIT.md](docs/internal/BASELINE_AUDIT.md) — dated baseline audit
+  and upstream research.
 
 ## Known issues and deferred work
 
-**Blocked / failed:**
-- Auth/TLS, multi-scenario config, consent/retention, bias evaluation, CI E2E.
+**Open:**
+- TLS/WSS, per-session authorization/tenant isolation, rate limits/quotas, audio
+  retention/consent controls, bias/validation study, live CI E2E for real models.
+- Live managed-call provider verification (workflow is contract-tested only).
 
 **Rejected / deferred:**
 - Production hiring without compliance review.
+- Wholesale rewrite of working Python domain logic into Rust.
 
 Full shipped/blocked/rejected detail: [`docs/internal/QUEUE_STATUS.md`](docs/internal/QUEUE_STATUS.md).
 
@@ -213,8 +327,8 @@ Full shipped/blocked/rejected detail: [`docs/internal/QUEUE_STATUS.md`](docs/int
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for how to set up and test changes, and
 [SECURITY.md](SECURITY.md) for the current security gaps. CI runs `cargo fmt`/`clippy`/`test`
-for the gateway, `ruff` + an import sanity check for `ai-service`, and `tsc` + `npm run
-build` for the candidate client.
+for the gateway, `ruff` + `pytest` for `ai-service`, and `tsc` + `npm run build` for the
+candidate client. Python tests use mock providers and require no models or network.
 
 ## Related projects
 

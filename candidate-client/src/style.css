@@ -123,3 +123,24 @@ p.hint {
   font-size: 0.9rem;
   line-height: 1.5;
 }
+
+.consent {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  margin: 0.75rem 0;
+  text-align: left;
+}
+
+.consent input {
+  margin-top: 0.2rem;
+}
+
+#device-select {
+  width: 100%;
+  margin-bottom: 0.75rem;
+  padding: 0.5rem;
+  border-radius: 0.4rem;
+}

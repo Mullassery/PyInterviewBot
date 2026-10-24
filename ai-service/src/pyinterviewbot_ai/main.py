@@ -6,12 +6,14 @@ from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
-from . import agent, asr, db, documents, tts
+from . import agent, db, documents, providers, report, templates
 from .auth import require_auth
 from .models import (
+    ReviewRequest,
     SessionListItem,
+    SessionReport,
     SessionSummary,
     StartSessionRequest,
     StartSessionResponse,
@@ -20,6 +22,7 @@ from .models import (
     TurnRequest,
     TurnResponse,
 )
+from .providers import ProviderError
 
 # Default to the candidate-client's actual dev server origins (Vite's
 # default port, on both `localhost` and `127.0.0.1` since browsers treat
@@ -34,6 +37,7 @@ ALLOWED_ORIGINS = [
     for origin in os.environ.get("ALLOWED_ORIGINS", _DEFAULT_ALLOWED_ORIGINS).split(",")
     if origin.strip()
 ]
+MAX_AUDIO_BYTES = int(os.environ.get("PYINTERVIEWBOT_MAX_AUDIO_BYTES", str(10 * 1024 * 1024)))
 
 
 @asynccontextmanager
@@ -43,6 +47,18 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="PyInterviewBot ai-service", lifespan=lifespan)
+
+
+@app.exception_handler(ProviderError)
+async def provider_error_handler(_request: Request, exc: ProviderError) -> JSONResponse:
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": exc.message,
+            "provider": exc.provider,
+            "retryable": exc.retryable,
+        },
+    )
 
 app.add_middleware(
     CORSMiddleware,
@@ -62,9 +78,16 @@ async def health() -> dict[str, str]:
     response_model=StartSessionResponse,
     dependencies=[Depends(require_auth)],
 )
-async def create_session(_req: StartSessionRequest) -> StartSessionResponse:
-    session_id, question_text = await agent.start_session()
-    return StartSessionResponse(session_id=session_id, question_text=question_text)
+async def create_session(req: StartSessionRequest) -> StartSessionResponse:
+    try:
+        session_id, question_text, template_id = await agent.start_session(req.template_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return StartSessionResponse(
+        session_id=session_id,
+        question_text=question_text,
+        template_id=template_id,
+    )
 
 
 @app.post(
@@ -108,11 +131,64 @@ async def summary(session_id: UUID) -> SessionSummary:
         raise HTTPException(status_code=404, detail=f"unknown session {session_id}")
     return SessionSummary(
         session_id=session_id,
+        template_id=row["template_id"] or "rag_architect",
         resume_claim=row["resume_claim"],
         is_complete=bool(row["is_complete"]),
         transcript=await db.get_transcript(session_id),
         evidence=await db.get_evidence(session_id),
     )
+
+
+@app.get(
+    "/sessions/{session_id}/report",
+    response_model=SessionReport,
+    dependencies=[Depends(require_auth)],
+)
+async def session_report(session_id: UUID) -> SessionReport:
+    row = await db.get_session_row(session_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"unknown session {session_id}")
+    try:
+        template = templates.get_template(row["template_id"])
+    except ValueError:
+        template = templates.get_template()
+    return report.build_report(
+        session_id=session_id,
+        template=template,
+        transcript=await db.get_transcript(session_id),
+        evidence=await db.get_evidence(session_id),
+        reviews=await db.get_reviews(session_id),
+    )
+
+
+@app.post(
+    "/sessions/{session_id}/review",
+    dependencies=[Depends(require_auth)],
+)
+async def review_evidence(session_id: UUID, req: ReviewRequest) -> dict:
+    row = await db.get_session_row(session_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"unknown session {session_id}")
+    template = templates.get_template(row["template_id"])
+    if req.node not in {node.id for node in template.nodes}:
+        raise HTTPException(status_code=400, detail=f"unknown evidence node {req.node}")
+    await db.record_review(
+        session_id, req.node, req.reviewer, req.decision, req.note
+    )
+    return {"recorded": True, "session_id": str(session_id), "node": req.node}
+
+
+@app.get("/templates", dependencies=[Depends(require_auth)])
+async def list_templates() -> list[dict[str, str]]:
+    return templates.list_templates()
+
+
+@app.get("/providers", dependencies=[Depends(require_auth)])
+async def list_providers() -> dict:
+    return {
+        "configured": providers.configured_providers(),
+        "status": await providers.provider_status(),
+    }
 
 
 @app.post("/documents/parse", dependencies=[Depends(require_auth)])
@@ -134,16 +210,22 @@ async def parse_document(req: dict) -> dict:
     dependencies=[Depends(require_auth)],
 )
 async def transcribe(request: Request) -> TranscribeResponse:
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > MAX_AUDIO_BYTES:
+        raise HTTPException(status_code=413, detail="audio payload too large")
     pcm16 = await request.body()
-    text = await asr.transcribe(pcm16)
-    return TranscribeResponse(transcript=text)
+    if len(pcm16) > MAX_AUDIO_BYTES:
+        raise HTTPException(status_code=413, detail="audio payload too large")
+    text = await providers.get_asr().transcribe(pcm16)
+    return TranscribeResponse(transcript=text.text)
 
 
 @app.post("/tts/synthesize", dependencies=[Depends(require_auth)])
 async def synthesize(req: SynthesizeRequest) -> StreamingResponse:
+    provider = providers.get_tts()
     return StreamingResponse(
-        tts.synthesize_stream(req.text),
-        media_type=f"audio/L16;rate={tts.SAMPLE_RATE};channels=1",
+        provider.synthesize(req.text),
+        media_type=f"audio/L16;rate={provider.sample_rate};channels=1",
     )
 
 

@@ -15,7 +15,7 @@ use std::collections::VecDeque;
 const FRAME_SAMPLES: usize = 256; // 16ms @ 16kHz mono, required by earshot
 const FRAME_MS: u32 = 16;
 const MIN_SPEECH_MS_TO_COUNT: u32 = 200;
-const SILENCE_MS_TO_END_TURN: u32 = 700;
+pub const DEFAULT_SILENCE_MS_TO_END_TURN: u32 = 700;
 /// How much audio to keep on hand before speech is confirmed, so the first
 /// ~300ms of an utterance isn't clipped off while we wait to be sure it's
 /// really speech and not a click or breath.
@@ -41,10 +41,20 @@ pub struct TurnDetector {
     /// further bytes are appended straight to the caller's capture buffer
     /// instead of the preroll ring.
     capturing: bool,
+    pub(crate) silence_ms_to_end_turn: u32,
 }
 
 impl Default for TurnDetector {
     fn default() -> Self {
+        Self::with_silence_ms(DEFAULT_SILENCE_MS_TO_END_TURN)
+    }
+}
+
+impl TurnDetector {
+    /// Builds a detector with a configurable trailing-silence threshold.
+    /// Values below 100ms are clamped so a session cannot end on a single
+    /// frame of noise.
+    pub fn with_silence_ms(silence_ms: u32) -> Self {
         Self {
             detector: earshot::Detector::default(),
             frame_buf: Vec::with_capacity(FRAME_SAMPLES),
@@ -54,11 +64,9 @@ impl Default for TurnDetector {
             in_speech: false,
             preroll: VecDeque::with_capacity(MAX_PREROLL_BYTES),
             capturing: false,
+            silence_ms_to_end_turn: silence_ms.max(100),
         }
     }
-}
-
-impl TurnDetector {
     /// Feed raw little-endian PCM16 mono 16kHz bytes as they arrive from the
     /// browser. Returns any VAD events that fired as a result.
     pub fn push_pcm16(&mut self, bytes: &[u8]) -> Vec<VadEvent> {
@@ -104,7 +112,7 @@ impl TurnDetector {
             }
         } else if self.in_speech {
             self.silence_run_ms += FRAME_MS;
-            if self.silence_run_ms >= SILENCE_MS_TO_END_TURN {
+            if self.silence_run_ms >= self.silence_ms_to_end_turn {
                 self.in_speech = false;
                 self.speech_run_ms = 0;
                 self.silence_run_ms = 0;
@@ -216,5 +224,18 @@ mod tests {
         assert_eq!(d.speech_run_ms, 0);
         assert_eq!(d.silence_run_ms, 0);
         assert!(!d.in_speech);
+    }
+
+    #[test]
+    fn silence_threshold_is_configurable_and_clamped() {
+        assert_eq!(
+            TurnDetector::with_silence_ms(1_500).silence_ms_to_end_turn,
+            1_500
+        );
+        assert_eq!(TurnDetector::with_silence_ms(0).silence_ms_to_end_turn, 100);
+        assert_eq!(
+            TurnDetector::default().silence_ms_to_end_turn,
+            DEFAULT_SILENCE_MS_TO_END_TURN
+        );
     }
 }

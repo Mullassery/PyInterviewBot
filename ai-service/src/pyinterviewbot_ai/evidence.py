@@ -1,11 +1,13 @@
-"""The competency/evidence graph (spec §21) for this slice's one demo
-competency: RAG Architecture. A production system would load this from a
-job-description-driven competency library; here it's a fixed definition
-matching the §36 demo scenario exactly.
+"""Evidence graph state for the active interview template.
+
+The default RAG nodes remain exported for backwards compatibility. New
+templates pass their own node ids/descriptions so evidence stays grounded in
+the job-relevant rubric rather than a hardcoded demo.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from .models import EvidenceStatus
@@ -27,12 +29,14 @@ class NodeState:
 
 @dataclass
 class EvidenceGraphState:
-    nodes: dict[str, NodeState] = field(default_factory=lambda: {n: NodeState() for n in NODES})
+    node_specs: Mapping[str, str] = field(default_factory=lambda: dict(NODES))
+    nodes: dict[str, NodeState] = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.nodes = {node_id: NodeState() for node_id in self.node_specs}
 
     def apply(self, node: str, status: EvidenceStatus, note: str) -> None:
         if node not in self.nodes:
-            # The LLM invented a node id we don't track — ignore rather than
-            # crash the turn; the raw note is still visible in the transcript.
             return
         self.nodes[node] = NodeState(status=status, note=note)
 
@@ -40,9 +44,15 @@ class EvidenceGraphState:
         addressed = [n for n in self.nodes.values() if n.status != "not_addressed"]
         return len(addressed) == len(self.nodes)
 
+    def statuses(self) -> dict[str, str]:
+        return {node_id: state.status for node_id, state in self.nodes.items()}
+
     def summary_for_prompt(self) -> str:
         lines = []
-        for node_id, description in NODES.items():
+        for node_id, description in self.node_specs.items():
             state = self.nodes[node_id]
-            lines.append(f"- {node_id} ({description}): {state.status}" + (f" — {state.note}" if state.note else ""))
+            lines.append(
+                f"- {node_id} ({description}): {state.status}"
+                + (f" — {state.note}" if state.note else "")
+            )
         return "\n".join(lines)

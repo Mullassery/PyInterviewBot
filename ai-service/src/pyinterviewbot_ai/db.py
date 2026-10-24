@@ -13,7 +13,13 @@ from uuid import UUID
 import aiosqlite
 
 from .evidence import COMPETENCY
-from .models import EvidenceRecord, EvidenceStatus, SessionListItem, TranscriptSegment
+from .models import (
+    EvidenceRecord,
+    EvidenceStatus,
+    ReviewCorrection,
+    SessionListItem,
+    TranscriptSegment,
+)
 from .resume import ResumeClaim
 
 DB_PATH = os.environ.get("PYINTERVIEWBOT_DB_PATH", "data/pyinterviewbot.db")
@@ -23,6 +29,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     created_at TEXT NOT NULL,
     resume_claim TEXT NOT NULL,
+    template_id TEXT NOT NULL DEFAULT 'rag_architect',
     turn_count INTEGER NOT NULL DEFAULT 0,
     is_complete INTEGER NOT NULL DEFAULT 0
 );
@@ -46,6 +53,16 @@ CREATE TABLE IF NOT EXISTS evidence (
     turn_number INTEGER NOT NULL,
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS review_corrections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL REFERENCES sessions(id),
+    node TEXT NOT NULL,
+    reviewer TEXT NOT NULL,
+    decision TEXT NOT NULL,
+    note TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 """
 
 
@@ -53,6 +70,13 @@ async def init_db() -> None:
     os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
     async with aiosqlite.connect(DB_PATH) as db:
         await db.executescript(SCHEMA)
+        cursor = await db.execute("PRAGMA table_info(sessions)")
+        columns = {row[1] for row in await cursor.fetchall()}
+        if "template_id" not in columns:
+            await db.execute(
+                "ALTER TABLE sessions ADD COLUMN template_id TEXT NOT NULL "
+                "DEFAULT 'rag_architect'"
+            )
         await db.commit()
 
 
@@ -69,11 +93,14 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-async def create_session(session_id: UUID, claim: ResumeClaim) -> None:
+async def create_session(
+    session_id: UUID, claim: ResumeClaim, template_id: str = "rag_architect"
+) -> None:
     async with connect() as db:
         await db.execute(
-            "INSERT INTO sessions (id, created_at, resume_claim) VALUES (?, ?, ?)",
-            (str(session_id), _now(), claim.text),
+            "INSERT INTO sessions (id, created_at, resume_claim, template_id) "
+            "VALUES (?, ?, ?, ?)",
+            (str(session_id), _now(), claim.text, template_id),
         )
         await db.commit()
 
@@ -91,13 +118,18 @@ async def append_transcript(
 
 
 async def record_evidence(
-    session_id: UUID, node: str, status: EvidenceStatus, note: str, turn_number: int
+    session_id: UUID,
+    node: str,
+    status: EvidenceStatus,
+    note: str,
+    turn_number: int,
+    competency: str = COMPETENCY,
 ) -> None:
     async with connect() as db:
         await db.execute(
             "INSERT INTO evidence (session_id, competency, node, status, note, turn_number, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (str(session_id), COMPETENCY, node, status, note, turn_number, _now()),
+            (str(session_id), competency, node, status, note, turn_number, _now()),
         )
         await db.commit()
 
@@ -123,6 +155,9 @@ async def delete_session(session_id: UUID) -> bool:
     """Delete a session and all transcript/evidence rows (retention request)."""
     async with connect() as db:
         await db.execute(
+            "DELETE FROM review_corrections WHERE session_id = ?", (str(session_id),)
+        )
+        await db.execute(
             "DELETE FROM evidence WHERE session_id = ?", (str(session_id),)
         )
         await db.execute(
@@ -139,8 +174,8 @@ async def list_sessions() -> list[SessionListItem]:
     async with connect() as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
-            "SELECT id, created_at, resume_claim, is_complete, turn_count FROM sessions "
-            "ORDER BY created_at DESC LIMIT 50"
+            "SELECT id, created_at, resume_claim, template_id, is_complete, turn_count "
+            "FROM sessions ORDER BY created_at DESC LIMIT 50"
         )
         rows = await cursor.fetchall()
         return [
@@ -148,6 +183,7 @@ async def list_sessions() -> list[SessionListItem]:
                 session_id=r["id"],
                 created_at=r["created_at"],
                 resume_claim=r["resume_claim"],
+                template_id=r["template_id"] or "rag_architect",
                 is_complete=bool(r["is_complete"]),
                 turn_count=r["turn_count"],
             )
@@ -197,6 +233,44 @@ async def get_evidence(session_id: UUID) -> list[EvidenceRecord]:
                 status=r["status"],
                 note=r["note"],
                 turn_number=r["turn_number"],
+            )
+            for r in rows
+        ]
+
+
+async def record_review(
+    session_id: UUID,
+    node: str,
+    reviewer: str,
+    decision: str,
+    note: str,
+) -> None:
+    async with connect() as db:
+        await db.execute(
+            "INSERT INTO review_corrections "
+            "(session_id, node, reviewer, decision, note, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (str(session_id), node, reviewer, decision, note, _now()),
+        )
+        await db.commit()
+
+
+async def get_reviews(session_id: UUID) -> list[ReviewCorrection]:
+    async with connect() as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT node, reviewer, decision, note, created_at FROM review_corrections "
+            "WHERE session_id = ? ORDER BY id ASC",
+            (str(session_id),),
+        )
+        rows = await cursor.fetchall()
+        return [
+            ReviewCorrection(
+                node=r["node"],
+                reviewer=r["reviewer"],
+                decision=r["decision"],
+                note=r["note"],
+                created_at=r["created_at"],
             )
             for r in rows
         ]

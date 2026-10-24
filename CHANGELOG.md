@@ -6,6 +6,44 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
 
 ## [Unreleased]
 
+### Added (2026-10-25)
+
+- Provider-neutral speech/language contracts and registry (`providers/`) with
+  `local` and deterministic `mock` implementations. Unknown providers fail closed.
+- Self-hosted Rust `voice-runtime/` crate: provider contracts, session
+  lifecycle, sequenced events, bounded audio/text, cancellation, capacity,
+  idle timeout sweeping, deterministic mock provider, native speech-studio core
+  (WAV/PCM, resampling, speech engine contracts), managed-call workflow
+  (server-side call API, Bearer/HMAC webhook verification, idempotent event
+  normalization), and unit tests.
+- Gateway integration for the native runtime at `/native/voice/*` and the
+  optional `/native/managed-call/*` workflow, sharing gateway authentication.
+- Versioned interview templates (`rag_architect`, `backend_engineer`,
+  `data_engineer`) with persisted `sessions.template_id` and in-place SQLite
+  migration.
+- Evidence-linked reports at `GET /sessions/{id}/report` and append-only human
+  review at `POST /sessions/{id}/review`; citations flag model notes as
+  inference and reports require human review.
+- Deterministic Python interview-flow/provider tests that run offline in CI.
+- Gateway `AI_SERVICE_API_KEY`/`PYINTERVIEWBOT_API_KEY` forwarding,
+  `PYINTERVIEWBOT_TEMPLATE`, configurable VAD silence
+  (`GATEWAY_VAD_SILENCE_MS`), per-turn audio caps
+  (`GATEWAY_MAX_UTTERANCE_BYTES`), WebSocket frame/message limits, and `/ready`.
+- `/asr/transcribe` payload cap (`PYINTERVIEWBOT_MAX_AUDIO_BYTES`, 413 on
+  overflow), plus `/providers` and `/templates` discovery endpoints.
+
+### Changed (2026-10-25)
+
+- Removed external trademarked/upstream product names and adapter paths from
+  code, configuration, tests, and documentation. Both workflows are implemented
+  natively in Rust and exposed through the gateway.
+
+### Documentation (2026-10-25)
+
+- Added `docs/internal/BASELINE_AUDIT.md`, `docs/CAPABILITY_MATRIX.md`,
+  `docs/SECURITY_MODEL.md`, `docs/LICENCES.md`, and ADRs 0002–0004. Corrected
+  stale auth/tests claims in `README.md` and `SECURITY.md`.
+
 ### Security
 
 - Fixed unbounded HTTP client in the gateway's `AiClient`

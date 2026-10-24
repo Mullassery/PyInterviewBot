@@ -40,11 +40,15 @@ pub enum AiClientError {
 pub struct AiClient {
     http: reqwest::Client,
     base_url: String,
+    api_key: Option<String>,
+    template_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 struct StartSessionRequest {
     resume_seed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    template_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -79,6 +83,16 @@ impl AiClient {
         Self::with_timeout(base_url, AI_SERVICE_TIMEOUT)
     }
 
+    pub fn with_api_key(mut self, api_key: Option<String>) -> Self {
+        self.api_key = api_key;
+        self
+    }
+
+    pub fn with_template(mut self, template_id: Option<String>) -> Self {
+        self.template_id = template_id;
+        self
+    }
+
     /// Split out from `new` so tests can use a short timeout instead of
     /// waiting out the real `AI_SERVICE_TIMEOUT` against a deliberately
     /// unresponsive server.
@@ -89,17 +103,38 @@ impl AiClient {
                 .build()
                 .expect("reqwest client with a fixed timeout should always build"),
             base_url: base_url.into(),
+            api_key: None,
+            template_id: None,
+        }
+    }
+
+    fn request(&self, method: reqwest::Method, path: &str) -> reqwest::RequestBuilder {
+        let builder = self
+            .http
+            .request(method, format!("{}{}", self.base_url, path));
+        match &self.api_key {
+            Some(key) => builder.header("x-api-key", key),
+            None => builder,
         }
     }
 
     pub async fn start_session(&self) -> Result<StartSessionResponse, AiClientError> {
         let resp = self
-            .http
-            .post(format!("{}/sessions", self.base_url))
-            .json(&StartSessionRequest { resume_seed: true })
+            .request(reqwest::Method::POST, "/sessions")
+            .json(&StartSessionRequest {
+                resume_seed: true,
+                template_id: self.template_id.clone(),
+            })
             .send()
             .await?;
         Ok(Self::check_status(resp).await?.json().await?)
+    }
+
+    pub async fn health(&self) -> bool {
+        self.request(reqwest::Method::GET, "/health")
+            .send()
+            .await
+            .is_ok_and(|resp| resp.status().is_success())
     }
 
     pub async fn agent_turn(
@@ -108,8 +143,10 @@ impl AiClient {
         transcript: &str,
     ) -> Result<TurnResponse, AiClientError> {
         let resp = self
-            .http
-            .post(format!("{}/sessions/{}/turn", self.base_url, session_id))
+            .request(
+                reqwest::Method::POST,
+                &format!("/sessions/{}/turn", session_id),
+            )
             .json(&TurnRequest {
                 transcript: transcript.to_string(),
             })
@@ -123,8 +160,7 @@ impl AiClient {
     /// docs/ARCHITECTURE.md for why that's an intentional MVP simplification.
     pub async fn transcribe(&self, pcm16_16khz: Vec<u8>) -> Result<String, AiClientError> {
         let resp = self
-            .http
-            .post(format!("{}/asr/transcribe", self.base_url))
+            .request(reqwest::Method::POST, "/asr/transcribe")
             .header("content-type", "audio/l16;rate=16000")
             .body(pcm16_16khz)
             .send()
@@ -141,8 +177,7 @@ impl AiClient {
         text: &str,
     ) -> Result<impl Stream<Item = Result<Bytes, reqwest::Error>>, AiClientError> {
         let resp = self
-            .http
-            .post(format!("{}/tts/synthesize", self.base_url))
+            .request(reqwest::Method::POST, "/tts/synthesize")
             .json(&SynthesizeRequest {
                 text: text.to_string(),
             })
@@ -173,6 +208,52 @@ mod tests {
     /// once the timeout elapses, instead of hanging indefinitely. This is
     /// what lets `ws_handler.rs` reach `speak_recovery()` on an ai-service
     /// stall rather than blocking the whole session loop.
+    #[tokio::test]
+    async fn start_session_forwards_api_key_and_template() {
+        use axum::{extract::State, http::HeaderMap, routing::post, Json, Router};
+        use std::sync::{Arc, Mutex};
+
+        type Captured = Arc<Mutex<Option<(Option<String>, serde_json::Value)>>>;
+        let captured: Captured = Arc::new(Mutex::new(None));
+
+        async fn handler(
+            State(captured): State<Captured>,
+            headers: HeaderMap,
+            body: String,
+        ) -> Json<serde_json::Value> {
+            let key = headers
+                .get("x-api-key")
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string);
+            let parsed = serde_json::from_str(&body).unwrap_or(serde_json::Value::Null);
+            *captured.lock().unwrap() = Some((key, parsed));
+            Json(serde_json::json!({
+                "session_id": "00000000-0000-0000-0000-000000000001",
+                "question_text": "hello"
+            }))
+        }
+
+        let app = Router::new()
+            .route("/sessions", post(handler))
+            .with_state(captured.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let client = AiClient::new(format!("http://{addr}"))
+            .with_api_key(Some("secret".to_string()))
+            .with_template(Some("backend_engineer".to_string()));
+        let started = client.start_session().await.unwrap();
+        assert_eq!(started.question_text, "hello");
+
+        let (key, body) = captured.lock().unwrap().clone().expect("request captured");
+        assert_eq!(key.as_deref(), Some("secret"));
+        assert_eq!(body["template_id"], "backend_engineer");
+        assert_eq!(body["resume_seed"], true);
+    }
+
     #[tokio::test]
     async fn request_times_out_instead_of_hanging_forever() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
