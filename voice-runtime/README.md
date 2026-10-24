@@ -18,6 +18,9 @@ questions, evidence, or evaluation:
   TTS output, engine catalogue/health discovery, session lifecycle,
   cancellation, idle sweeping, and replaceable `SpeechEngine` contracts plus a
   mock engine.
+- `neural` module (feature `local-neural`): real local VITS/Piper TTS and
+  Whisper ASR through sherpa-onnx, with operator-supplied model paths and CPU
+  default. Models are not bundled.
 - `managed_call` module: optional server-side managed-call workflow with call
   create/get/end, exponential-backoff retries for retryable failures,
   constant-time Bearer/HMAC webhook verification, bounded idempotent event

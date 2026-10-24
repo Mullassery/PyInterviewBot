@@ -91,6 +91,9 @@ Implemented natively in Rust:
 
 - Speech-studio core: PCM16/WAV codecs, linear resampling, RMS, silence trim,
   peak normalization, concatenation, chunking.
+- Optional real local neural engine: VITS/Piper TTS and Whisper ASR through
+  sherpa-onnx, operator-supplied weights, CPU default. Verified with a real
+  TTS→ASR round-trip and gateway TTS/transcription endpoint smoke test.
 - Session speech generation, transcription, interruption, explicit in-memory
   recording/export/deletion.
 - Chunked TTS delivery over the native HTTP endpoint and an engine catalogue
@@ -103,8 +106,8 @@ Implemented natively in Rust:
 
 Pending:
 
-- Real local neural ASR/TTS engines behind `SpeechEngine` (licence, model
-  weights, CPU/GPU support, warm-up, streaming validation).
+- True incremental neural synthesis (current chunking happens after synthesis).
+- Model warm-up/load-time metrics and optional accelerators (GPU/CoreML).
 - Model catalogue/capability discovery beyond static mock capabilities.
 - Real engine streaming (current chunks are produced after full synthesis; the
   engine contract is ready for true incremental synthesis).
@@ -172,8 +175,8 @@ Pending:
 
 ### P1 — production readiness
 
-1. Real local ASR/TTS engine integration behind `SpeechEngine`.
-2. Streaming TTS and partial transcript transport validation.
+1. Neural model warm-up, accelerator configuration, and load-time SLOs.
+2. True incremental TTS and partial transcript transport validation.
 3. Provider disconnect/reconnect and duplicate-event tests.
 4. Load, latency, and resource measurements; publish results.
 5. Dependency vulnerability scanning in CI.

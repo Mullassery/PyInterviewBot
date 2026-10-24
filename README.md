@@ -37,8 +37,9 @@ This platform:                Listen → Understand → Probe → Verify → Ass
   (`local` or `mock`) behind narrow contracts. Interview state and evidence stay in
   PyInterviewBot; a provider is never the source of truth.
 - **Self-hosted Rust voice runtime** (`voice-runtime/`): session lifecycle, sequenced
-  normalized events, bounded audio, cancellation, idle timeouts, capacity limits, and a
-  deterministic mock provider, all in Rust with unit tests.
+  normalized events, bounded audio, cancellation, idle timeouts, capacity limits, a
+  deterministic mock provider, and an optional real local neural ASR/TTS path
+  (`sherpa-onnx` + operator-supplied models), all in Rust with tests.
 - **Deterministic mock mode.** `PYINTERVIEWBOT_PROVIDER=mock` runs a complete interview,
   report, and review flow with no models, network, or paid API. CI uses this path.
 - **Templates and evidence-linked reports.** Role-specific templates define explicit
@@ -243,10 +244,26 @@ curl -H "Authorization: Bearer $GATEWAY_API_KEY" \
 ```
 
 The default speech engine is the deterministic mock (`/native/voice/capabilities`
-reports `engine: "mock"`). Real local inference plugs into the `SpeechEngine`
-trait without changing the runtime, gateway, or interview domain. Configure the
-optional managed-call workflow with `MANAGED_CALL_API_KEY`,
-`MANAGED_CALL_BASE_URL`, and `MANAGED_CALL_WEBHOOK_SECRET` (plus
+reports `engine: "mock"`). To enable the real local neural engine, build the
+gateway with `--features local-neural`, set `VOICE_ENGINE=neural`, and provide
+model paths:
+
+```bash
+cargo run -p gateway --features local-neural
+# NEURAL_TTS_MODEL=/models/en_US-lessac-medium.onnx
+# NEURAL_TTS_TOKENS=/models/tokens.txt
+# NEURAL_TTS_LEXICON=/models/lexicon-en-us.txt
+# NEURAL_ASR_ENCODER=/models/tiny.en-encoder.int8.onnx
+# NEURAL_ASR_DECODER=/models/tiny.en-decoder.int8.onnx
+# NEURAL_ASR_TOKENS=/models/tiny.en-tokens.txt
+# VOICE_ENGINE=neural
+```
+
+The neural path uses `sherpa-onnx` (Apache-2.0) with operator-supplied VITS/Piper
+TTS and Whisper ASR weights. Models are not bundled; verify their terms before
+deployment. Configure the optional managed-call workflow with
+`MANAGED_CALL_API_KEY`, `MANAGED_CALL_BASE_URL`, and
+`MANAGED_CALL_WEBHOOK_SECRET` (plus
 `MANAGED_CALL_WEBHOOK_AUTH_MODE=bearer|hmac`); no provider account is required
 for the local path. Webhook bodies are size-limited, authenticated in constant
 time, and de-duplicated before normalization. Transport retries use
@@ -254,8 +271,7 @@ time, and de-duplicated before normalization. Transport retries use
 (default 200) with exponential backoff for retryable failures.
 
 `/native/voice/engines` lists registered speech engines, default selection, and
-health. The default engine remains the deterministic mock until a real local
-engine is registered.
+health.
 
 ## Templates, reports, and human review
 

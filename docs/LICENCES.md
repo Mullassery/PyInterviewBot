@@ -18,6 +18,8 @@ Snapshot date: 2026-10-25. Not legal advice. Verify before distribution.
 | piper-tts | GPL-3.0 (Piper 1 GPL fork) | Distribution/embedding obligations apply; verify before shipping |
 | httpx / aiosqlite / pydantic | BSD/MIT/Apache-style | Verify installed versions |
 | Rust `voice-runtime` deps (`reqwest`, `hmac`, `sha2`, `hex`, `subtle`, `serde`, `tokio`, `uuid`) | Apache/MIT/BSD-style | Verify resolved crates in `Cargo.lock` |
+| `sherpa-onnx` (optional `local-neural` feature) | Apache-2.0 | ONNX Runtime and model weights have separate terms |
+| Local neural model files (VITS/Piper voice, Whisper) | Upstream model terms | Not bundled; operator must verify each model card |
 | Rust `axum` (gateway/native routes) | MIT | Verify resolved version |
 | TypeScript / Vite / browser client deps | MIT/BSD-style | `npm audit` clean in prior audit |
 

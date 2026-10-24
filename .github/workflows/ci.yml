@@ -28,6 +28,9 @@ jobs:
       - name: cargo test
         run: cargo test
 
+      - name: cargo check (optional local neural feature)
+        run: cargo check -p gateway --features local-neural
+
   ai-service:
     name: ai-service (Python)
     runs-on: ubuntu-latest

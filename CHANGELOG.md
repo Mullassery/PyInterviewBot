@@ -35,6 +35,13 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
 - `/asr/transcribe` payload cap (`PYINTERVIEWBOT_MAX_AUDIO_BYTES`, 413 on
   overflow), plus `/providers` and `/templates` discovery endpoints.
 
+### Added (Phase 4 neural engine)
+
+- Optional real local neural engine behind the `local-neural` feature:
+  sherpa-onnx VITS/Piper TTS and Whisper ASR, operator-supplied model paths,
+  CPU default, engine registration/health, and a real TTS→ASR smoke example.
+- Gateway feature wiring for `VOICE_ENGINE=neural` with safe mock fallback.
+
 ### Added (Phase 4 continuation)
 
 - Chunked TTS delivery at `/native/voice/sessions/{id}/speak/stream`.

@@ -8,9 +8,9 @@ distribution or commercial use.
 |---|---|---|
 | Deployment | In-repo workspace crate; transport-independent library | In-repo Rust gateway + Python service; models on host |
 | Application licence | Apache-2.0 (this repo) | Apache-2.0 (this repo) |
-| Model-weight terms | No model weights bundled | faster-whisper/Whisper, Ollama model, Piper voice: verify each |
-| ASR | Speech-engine contract + deterministic mock | faster-whisper per-utterance batch |
-| TTS | Speech-engine contract + deterministic mock | Piper, streamed PCM16 |
+| Model-weight terms | No weights bundled; neural feature uses operator-supplied VITS/Piper + Whisper | faster-whisper/Whisper, Ollama model, Piper voice: verify each |
+| ASR | Speech-engine contract + mock; optional local Whisper via sherpa-onnx | faster-whisper per-utterance batch |
+| TTS | Speech-engine contract + mock; optional local VITS/Piper via sherpa-onnx | Piper, streamed PCM16 |
 | Audio processing | PCM16/WAV codec, resampling, RMS/trim/normalize/concat/chunk, explicit in-memory recording/export | Python-side model I/O |
 | VAD / turn detection | Runtime lifecycle + gateway `earshot` VAD + configurable silence | `earshot` + configurable trailing silence |
 | Interview state ownership | PyInterviewBot (runtime never owns questions/evidence) | PyInterviewBot (SQLite + deterministic FSM) |
@@ -20,7 +20,7 @@ distribution or commercial use.
 | Managed-call workflow | Yes: server-side create/get/end, webhook auth, idempotent events | Not used |
 | Telephony / WebRTC | No (transport-independent core) | No (raw WebSocket PCM16) |
 | Offline / no account | Yes | Yes (after models installed) |
-| Status in this repo | Implemented, unit-tested with deterministic mock | Working, tested |
+| Status in this repo | Implemented; mock and local neural paths tested | Working, tested |
 | Cost | Infrastructure only | Infrastructure only |
 
 ## Decision

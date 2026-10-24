@@ -258,8 +258,10 @@ server-only; the local path never requires an account or network service.
 
 The Rust `voice-runtime/` crate provides a self-hosted transport-independent
 runtime: provider traits with boxed async contracts, deterministic mock
-provider, sequenced normalized events, bounded audio/text, session capacity,
-cancellation, and idle sweeping. It also contains a native speech-studio core
+provider, an optional real local neural engine (`sherpa-onnx` VITS/Piper TTS and
+Whisper ASR, operator-supplied weights), sequenced normalized events, bounded
+audio/text, session capacity, cancellation, and idle sweeping. It also contains
+a native speech-studio core
 (WAV/PCM, resampling, session recording/transcription, engine contracts) and the
 managed-call workflow (server-side call API, webhook authentication, idempotent
 normalization). Neural inference remains behind replaceable providers; the
@@ -311,6 +313,9 @@ interview-specific FSM:
   idle timeout sweeping, and a bounded broadcast event bus.
 - `MockVoiceProvider`: deterministic offline readiness, transcript, audio, and
   completion events. No models, network, or credentials.
+- `NeuralEngine` (feature `local-neural`): real local VITS/Piper TTS and Whisper
+  ASR via sherpa-onnx; model files are configured by environment and never
+  bundled. CPU is the default; GPU/accelerator providers are opt-in.
 - `VoiceState` transitions are a pure function with illegal-transition errors.
 - Tests cover lifecycle, audio/text limits, malformed audio, capacity, concurrent
   sessions, sequence isolation, interruption idempotency, and idle timeout.
