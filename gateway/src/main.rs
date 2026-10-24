@@ -1,4 +1,5 @@
 mod ai_client;
+mod calendar;
 mod native_voice;
 mod scheduler;
 mod session;
@@ -91,6 +92,7 @@ async fn main() {
     ));
     let twilio = twilio::TwilioConfig::from_env().map(Arc::new);
     let scheduler = scheduler::init_from_env();
+    let calendar = calendar::CalendarClient::from_env().map(Arc::new);
     let managed_config = ManagedCallConfig::from_env();
     let managed_call = ManagedCallClient::new(managed_config.clone())
         .ok()
@@ -116,6 +118,7 @@ async fn main() {
         managed_call,
         twilio,
         scheduler,
+        calendar,
     };
     scheduler::spawn_worker(
         state.clone(),

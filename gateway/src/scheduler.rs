@@ -33,6 +33,10 @@ pub enum ScheduleAction {
     TwilioCall,
     #[serde(rename = "whatsapp_message")]
     WhatsAppMessage,
+    #[serde(rename = "calendar_event")]
+    CalendarEvent,
+    #[serde(rename = "twilio_message")]
+    TwilioMessage,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,6 +117,8 @@ impl SchedulerStore {
         let action = match request.action {
             ScheduleAction::TwilioCall => "twilio_call",
             ScheduleAction::WhatsAppMessage => "whatsapp_message",
+            ScheduleAction::CalendarEvent => "calendar_event",
+            ScheduleAction::TwilioMessage => "twilio_message",
         };
         db.execute(
             "INSERT OR IGNORE INTO schedules
@@ -284,6 +290,8 @@ fn row_to_schedule(row: &rusqlite::Row<'_>) -> rusqlite::Result<Schedule> {
         id: row.get(0)?,
         action: match action.as_str() {
             "whatsapp_message" => ScheduleAction::WhatsAppMessage,
+            "calendar_event" => ScheduleAction::CalendarEvent,
+            "twilio_message" => ScheduleAction::TwilioMessage,
             _ => ScheduleAction::TwilioCall,
         },
         external_id: row.get(2)?,
@@ -442,6 +450,22 @@ async fn dispatch(state: &AppState, schedule: &Schedule) -> Result<(), String> {
                 .and_then(Value::as_str)
                 .unwrap_or(&schedule.external_id);
             twilio.create_call(to, &schedule.external_id).await?;
+        }
+        ScheduleAction::TwilioMessage => {
+            let request: crate::twilio::TwilioMessageRequest =
+                serde_json::from_value(schedule.payload.clone())
+                    .map_err(|error| format!("invalid twilio_message payload: {error}"))?;
+            twilio.send_message(&request).await?;
+        }
+        ScheduleAction::CalendarEvent => {
+            let calendar = state
+                .calendar
+                .as_ref()
+                .ok_or_else(|| "calendar providers are not configured".to_string())?;
+            let request: crate::calendar::CalendarEventRequest =
+                serde_json::from_value(schedule.payload.clone())
+                    .map_err(|error| format!("invalid calendar_event payload: {error}"))?;
+            calendar.create_event(&request).await?;
         }
         ScheduleAction::WhatsAppMessage => {
             let to = schedule

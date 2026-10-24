@@ -38,6 +38,7 @@ gaps) and `docs/CAPABILITY_MATRIX.md` (provider/licence boundaries).
 | PII in reports | Reports contain transcript quotes and rubric evidence only; interview-flow audio is not persisted |
 | Native studio recording | Explicit caller action only; in-memory, size-bounded, clearable, and dropped on session close |
 | Channel media downloads | HTTPS + Twilio host allowlist, no userinfo, 10 MiB cap, Basic auth |
+| Calendar credentials | Server-side access/refresh tokens only; never returned by the API |
 | Biased scoring | Report policy excludes accent, attractiveness, emotion, personality, protected traits; human review required |
 | Provider secrets in browser | Provider calls are server-side only; the managed-call client reads its private key on the server |
 | Webhook spoofing | Constant-time provider signature checks (Twilio HMAC-SHA1; managed-call Bearer/HMAC) |

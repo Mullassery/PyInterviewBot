@@ -22,7 +22,7 @@ use axum::{
 use base64::{engine::general_purpose::STANDARD, Engine};
 use futures_util::{SinkExt, StreamExt};
 use hmac::{Hmac, Mac};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha1::{Digest, Sha1};
 use tracing::{info, warn};
@@ -34,12 +34,32 @@ const MAX_BODY_BYTES: usize = 256 * 1024;
 const ULAW_FRAME_BYTES: usize = 160; // 20ms at 8kHz mono
 const FRAME_PACING_MS: u64 = 20;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TwilioMessageChannel {
+    #[serde(rename = "sms")]
+    Sms,
+    #[serde(rename = "whatsapp")]
+    WhatsApp,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TwilioMessageRequest {
+    pub to: String,
+    #[serde(default)]
+    pub body: String,
+    pub channel: TwilioMessageChannel,
+    pub from: Option<String>,
+    pub media_url: Option<String>,
+}
+
 #[derive(Clone)]
 pub struct TwilioConfig {
     pub auth_token: String,
     pub account_sid: Option<String>,
     pub from_number: Option<String>,
     pub whatsapp_from: Option<String>,
+    pub sms_from: Option<String>,
+    pub message_status_callback: Option<String>,
     pub public_base_url: String,
     pub media_ws_base_url: String,
     pub api_base_url: String,
@@ -78,6 +98,12 @@ impl TwilioConfig {
                 .ok()
                 .filter(|value| !value.is_empty()),
             whatsapp_from: std::env::var("TWILIO_WHATSAPP_FROM")
+                .ok()
+                .filter(|value| !value.is_empty()),
+            sms_from: std::env::var("TWILIO_SMS_FROM")
+                .ok()
+                .filter(|value| !value.is_empty()),
+            message_status_callback: std::env::var("TWILIO_MESSAGE_STATUS_CALLBACK_URL")
                 .ok()
                 .filter(|value| !value.is_empty()),
             public_base_url,
@@ -198,36 +224,64 @@ impl TwilioConfig {
     }
 
     pub async fn send_whatsapp(&self, to: &str, body: &str) -> Result<String, String> {
+        self.send_message(&TwilioMessageRequest {
+            to: to.to_string(),
+            body: body.to_string(),
+            channel: TwilioMessageChannel::WhatsApp,
+            from: None,
+            media_url: None,
+        })
+        .await
+    }
+
+    pub async fn send_message(&self, request: &TwilioMessageRequest) -> Result<String, String> {
+        if request.body.trim().is_empty() && request.media_url.is_none() {
+            return Err("message body or media_url is required".to_string());
+        }
         let Some(account_sid) = self.account_sid.as_deref() else {
             return Err("TWILIO_ACCOUNT_SID is required".to_string());
         };
-        let Some(from) = self.whatsapp_from.as_deref() else {
-            return Err("TWILIO_WHATSAPP_FROM is required".to_string());
-        };
-        if body.trim().is_empty() {
-            return Err("WhatsApp message body is required".to_string());
-        }
-        let to = if to.starts_with("whatsapp:") {
-            to.to_string()
-        } else {
-            format!("whatsapp:{to}")
-        };
-        let from = if from.starts_with("whatsapp:") {
-            from.to_string()
-        } else {
-            format!("whatsapp:{from}")
+        let (from, to) = match request.channel {
+            TwilioMessageChannel::WhatsApp => {
+                let from = request
+                    .from
+                    .as_deref()
+                    .or(self.whatsapp_from.as_deref())
+                    .ok_or("TWILIO_WHATSAPP_FROM is required")?;
+                (
+                    with_prefix(from, "whatsapp:"),
+                    with_prefix(&request.to, "whatsapp:"),
+                )
+            }
+            TwilioMessageChannel::Sms => {
+                let from = request
+                    .from
+                    .as_deref()
+                    .or(self.sms_from.as_deref())
+                    .or(self.from_number.as_deref())
+                    .ok_or("TWILIO_SMS_FROM or TWILIO_FROM_NUMBER is required")?;
+                (from.to_string(), request.to.clone())
+            }
         };
         let endpoint = format!(
             "{}/2010-04-01/Accounts/{}/Messages.json",
             self.api_base_url.trim_end_matches('/'),
             account_sid
         );
-        let form = serde_urlencoded::to_string([
-            ("To", to.as_str()),
-            ("From", from.as_str()),
-            ("Body", body),
-        ])
-        .unwrap_or_default();
+        let mut fields = vec![
+            ("To".to_string(), to),
+            ("From".to_string(), from),
+            ("Body".to_string(), request.body.clone()),
+        ];
+        if let Some(media_url) = &request.media_url {
+            fields.push(("MediaUrl".to_string(), media_url.clone()));
+        }
+        let callback = self
+            .message_status_callback
+            .clone()
+            .unwrap_or_else(|| format!("{}/channels/twilio/message-status", self.public_base_url));
+        fields.push(("StatusCallback".to_string(), callback));
+        let form = serde_urlencoded::to_string(&fields).unwrap_or_default();
         let response = self
             .http
             .post(endpoint)
@@ -242,7 +296,7 @@ impl TwilioConfig {
             .map_err(|error| error.to_string())?;
         if !response.status().is_success() {
             return Err(format!(
-                "Twilio WhatsApp send returned {}",
+                "Twilio message send returned {}",
                 response.status()
             ));
         }
@@ -251,7 +305,15 @@ impl TwilioConfig {
             .get("sid")
             .and_then(Value::as_str)
             .map(str::to_string)
-            .ok_or_else(|| "Twilio WhatsApp response missing sid".to_string())
+            .ok_or_else(|| "Twilio message response missing sid".to_string())
+    }
+}
+
+fn with_prefix(value: &str, prefix: &str) -> String {
+    if value.starts_with(prefix) {
+        value.to_string()
+    } else {
+        format!("{prefix}{value}")
     }
 }
 
@@ -337,6 +399,9 @@ pub fn router() -> Router<AppState> {
         .route("/channels/twilio/voice/stream", post(stream_twiml))
         .route("/channels/twilio/voice/media", get(media_upgrade))
         .route("/channels/twilio/voice/calls", post(create_call))
+        .route("/twilio/calls", post(create_call))
+        .route("/twilio/messages", post(create_message))
+        .route("/channels/twilio/message-status", post(message_status))
         .route("/channels/whatsapp/inbound", post(whatsapp_inbound))
         .route("/channels/whatsapp/status", post(whatsapp_status))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
@@ -954,6 +1019,52 @@ async fn media_socket(
     }
 }
 
+async fn create_message(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+    Json(request): Json<TwilioMessageRequest>,
+) -> Response {
+    if !authorized(&headers, &query, &state.api_key) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    let Some(config) = twilio_for(&state) else {
+        return unavailable();
+    };
+    match config.send_message(&request).await {
+        Ok(sid) => (StatusCode::CREATED, Json(json!({"sid": sid}))).into_response(),
+        Err(error) => (StatusCode::BAD_GATEWAY, Json(json!({"error": error}))).into_response(),
+    }
+}
+
+async fn message_status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    uri: axum::http::Uri,
+    body: Bytes,
+) -> Response {
+    let Some(config) = twilio_for(&state) else {
+        return unavailable();
+    };
+    let Some(params) = verify_request(
+        &config,
+        &state,
+        &headers,
+        uri.path_and_query()
+            .map(|value| value.as_str())
+            .unwrap_or(uri.path()),
+        &body,
+    ) else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
+    info!(
+        message_sid = %param(&params, "MessageSid"),
+        status = %param(&params, "MessageStatus"),
+        "Twilio message status"
+    );
+    StatusCode::NO_CONTENT.into_response()
+}
+
 fn whatsapp_reply(text: &str) -> Response {
     twiml(&format!("<Message>{}</Message>", escape(text)))
 }
@@ -1133,6 +1244,8 @@ mod tests {
             account_sid: Some("AC123".to_string()),
             from_number: Some("+15550001111".to_string()),
             whatsapp_from: Some("whatsapp:+15550001111".to_string()),
+            sms_from: Some("+15550001111".to_string()),
+            message_status_callback: None,
             public_base_url: "https://example.test".to_string(),
             media_ws_base_url: "wss://example.test".to_string(),
             api_base_url: "https://api.twilio.test".to_string(),
@@ -1191,6 +1304,12 @@ mod tests {
         let clear: Value = serde_json::from_str(&clear_message("MZ1")).unwrap();
         assert_eq!(clear["event"], "clear");
         assert_eq!(clear["streamSid"], "MZ1");
+    }
+
+    #[test]
+    fn message_channels_are_normalized() {
+        assert_eq!(with_prefix("+1555", "whatsapp:"), "whatsapp:+1555");
+        assert_eq!(with_prefix("whatsapp:+1555", "whatsapp:"), "whatsapp:+1555");
     }
 
     #[test]

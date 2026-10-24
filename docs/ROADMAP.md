@@ -30,7 +30,7 @@ Companion documents:
 | `cargo fmt --check` | pass |
 | `cargo clippy --all-targets -- -D warnings` | pass |
 | `cargo clippy --all-targets --features local-neural -- -D warnings` | pass |
-| `cargo test` | **72 passed** (35 gateway + 32 runtime + 5 domain) |
+| `cargo test` | **76 passed** (39 gateway + 32 runtime + 5 domain) |
 | `cargo test -p voice-runtime --features local-neural` | **63 passed** |
 | `uv run ruff check .` | pass |
 | `uv run --group dev python -m pytest -q` | **30 passed** |
@@ -183,6 +183,8 @@ Implemented:
 - TwiML `<Say>`/`<Gather>` loop through the channel-neutral interview API.
 - Deterministic idempotency key from CallSid + speech text.
 - Outbound call creation against the Twilio REST API, with tokenized start URL.
+- Twilio Messaging API send endpoint for SMS and WhatsApp, plus signed message
+  status callbacks.
 - Unit tests for signatures, form parsing, TwiML escaping, and start tokens.
 - Signed end-to-end local smoke against the mock interview engine.
 
@@ -233,7 +235,8 @@ Pending:
 
 - WhatsApp Business account/sender/template approval and live validation.
 - Messaging-window and template enforcement.
-- Outbound API/template messages and opt-out management.
+- Outbound template messages, opt-out management, and live Messaging API
+  validation.
 - Durable status-callback event persistence.
 - Scheduled outbound actions (implemented: SQLite queue, idempotency, bounded
   retries, stale-claim recovery, WhatsApp sends and Twilio calls).
@@ -287,9 +290,22 @@ Verified provider starting points:
 
 ### 10A. Scheduling and coordination
 
-Deliverables: Graph-authenticated meeting creation, URL/session association,
-reschedule/cancel, least-privilege permission documentation, and tenant setup
-guide.
+**Status: Partial — implemented, not live-verified**
+
+Implemented:
+
+- Provider-neutral calendar contract with Google Calendar `events.insert` and
+  Microsoft Graph `POST /me/events` (or `/users/{id}/events`).
+- Google Meet conference requests and Teams `isOnlineMeeting` /
+  `teamsForBusiness` requests.
+- Static access-token and refresh-token OAuth paths with in-process token cache.
+- Admin API (`POST /calendars/events`, `GET /calendars/providers`).
+- Scheduler `calendar_event` action.
+- Unit tests for provider request bodies and validation.
+
+Pending: live Google/Microsoft OAuth validation, reschedule/cancel APIs,
+meeting/session correlation persistence, least-privilege consent documentation,
+and tenant setup guide.
 
 ### 10B. Transcript-based evaluation
 
@@ -351,7 +367,7 @@ sufficient. Do not implement a text-only bot and call it a live interviewer.
 | WhatsApp text interviews | Implemented, not live-verified | Signed webhook smoke; approval needed |
 | WhatsApp voice notes | Implemented, not live-verified | Media/transcription path tested with mocks; live media untested |
 | WhatsApp live voice | Blocked / unverified | Provider capability and approval must be confirmed |
-| Teams scheduling | Pending | No Graph client; tenant/admin consent needed |
+| Teams scheduling | Partial — implemented, not live-verified | Graph event + Teams join URL; consent needed |
 | Teams transcript evaluation | Pending | No Graph/transcript client; meeting policy needed |
 | Teams autonomous AI participation | Blocked / unverified | Requires supported calling/media bot architecture |
 

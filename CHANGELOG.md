@@ -35,6 +35,26 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
 - `/asr/transcribe` payload cap (`PYINTERVIEWBOT_MAX_AUDIO_BYTES`, 413 on
   overflow), plus `/providers` and `/templates` discovery endpoints.
 
+### Added (Twilio messaging API)
+
+- `POST /twilio/messages` for SMS and WhatsApp sends through the Twilio
+  Messaging API, with server-side Basic auth, optional sender/media URL, and
+  status callback.
+- `POST /twilio/calls` alias for call creation.
+- Signed `/channels/twilio/message-status` callback.
+- Scheduler `twilio_message` action.
+- Locally mock-tested SMS, WhatsApp, and call requests.
+
+### Added (calendar integrations)
+
+- Provider-neutral calendar layer with Google Calendar and Microsoft Graph
+  Outlook event creation.
+- Google Meet conference requests and Teams online-meeting requests.
+- Static token and refresh-token OAuth support with cached tokens.
+- `POST /calendars/events`, `GET /calendars/providers`, and scheduler
+  `calendar_event` action.
+- Live Google/Microsoft validation remains pending.
+
 ### Added (scheduled outbound actions)
 
 - Durable SQLite scheduler for delayed WhatsApp messages and Twilio calls.

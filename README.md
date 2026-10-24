@@ -74,7 +74,7 @@ This platform:                Listen → Understand → Probe → Verify → Ass
 | WhatsApp text interviews | **Implemented, not live-verified** |
 | WhatsApp voice-note interviews | **Implemented, not live-verified** |
 | WhatsApp live voice calls | **Blocked / unverified** |
-| Microsoft Teams scheduling | **Not implemented** |
+| Microsoft Teams scheduling | **Partial — Outlook/Graph event + Teams join URL; not live-verified** |
 | Microsoft Teams transcript evaluation | **Not implemented** |
 | Teams autonomous live participation | **Blocked / unverified** |
 
@@ -313,8 +313,12 @@ Routes:
 - `POST /channels/twilio/voice/inbound` — signed inbound call webhook.
 - `POST /channels/twilio/voice/turn` — signed gather result webhook.
 - `POST /channels/twilio/voice/status` — signed call lifecycle callback.
-- `POST /channels/twilio/voice/calls` — authenticated outbound call creation
-  (`{"to":"+1555...","external_id":"candidate-1"}`).
+- `POST /twilio/calls` (alias `/channels/twilio/voice/calls`) — authenticated
+  outbound call creation (`{"to":"+1555...","external_id":"candidate-1"}`).
+- `POST /twilio/messages` — authenticated Twilio Messaging API send for SMS or
+  WhatsApp (`{"to":"+1555...","body":"...","channel":"sms|whatsapp"}`), with
+  optional `from` and `media_url`.
+- `POST /channels/twilio/message-status` — signed SMS/WhatsApp status callback.
 - `POST /channels/twilio/voice/start` — tokenized TwiML entry for outbound calls.
 - `POST /channels/twilio/voice/stream` — signed TwiML `<Connect><Stream>` entry.
 - `GET /channels/twilio/voice/media` — tokenized WebSocket media stream. It
@@ -339,6 +343,34 @@ Voice notes are downloaded only from allowed Twilio hosts over HTTPS, capped at
 message receives the opening question; subsequent messages advance the shared
 interview. Messaging-window/template enforcement and WhatsApp live calling remain
 pending.
+
+## Calendar integrations
+
+Google Calendar and Microsoft Graph/Outlook are supported for interview event
+creation. Microsoft events can request a Teams online meeting; Google events can
+request a Meet conference. Credentials stay server-side.
+
+```bash
+# Static access token or refresh-token OAuth
+GOOGLE_CALENDAR_ACCESS_TOKEN=...       # or GOOGLE_CALENDAR_REFRESH_TOKEN + client creds
+GOOGLE_CALENDAR_ID=primary
+MICROSOFT_GRAPH_ACCESS_TOKEN=...       # or MICROSOFT_REFRESH_TOKEN + client creds
+MICROSOFT_GRAPH_USER_ID=               # optional; defaults to /me
+```
+
+```bash
+curl -X POST http://127.0.0.1:8787/calendars/events \
+  -H "Authorization: Bearer $GATEWAY_API_KEY" -H "Content-Type: application/json" \
+  -d '{"provider":"outlook","subject":"Senior Backend Interview",
+       "description":"Interview with PyInterviewBot","start":"2026-10-26T10:00:00Z",
+       "end":"2026-10-26T11:00:00Z","timezone":"UTC",
+       "attendees":["candidate@example.com"],"create_online_meeting":true}'
+```
+
+`GET /calendars/providers` reports configured providers. Scheduled calendar
+events use `POST /schedules` with `"action":"calendar_event"` and a payload
+matching the event request. Live Google/Microsoft validation requires OAuth
+client configuration and tenant consent; no live calendar API call has been run.
 
 ## Scheduled outbound actions
 
@@ -368,8 +400,10 @@ curl -X DELETE -H "Authorization: Bearer $GATEWAY_API_KEY" \
 
 Configuration: `SCHEDULER_DB_PATH` (default `data/schedules.db`),
 `SCHEDULER_INTERVAL_SECONDS` (default 5), `TWILIO_WHATSAPP_FROM` for WhatsApp
-sends. Failed actions retry with bounded backoff and become terminal after three
-attempts. Stale `dispatching` claims are recovered after five minutes.
+sends, and `TWILIO_SMS_FROM`/`TWILIO_FROM_NUMBER` for SMS. Scheduled message
+actions use `"action":"twilio_message"` with a Twilio message payload. Failed
+actions retry with bounded backoff and become terminal after three attempts.
+Stale `dispatching` claims are recovered after five minutes.
 
 ## Channel-neutral interview API
 
@@ -406,8 +440,12 @@ Routes:
 - `POST /channels/twilio/voice/inbound` — signed inbound call webhook.
 - `POST /channels/twilio/voice/turn` — signed gather result webhook.
 - `POST /channels/twilio/voice/status` — signed call lifecycle callback.
-- `POST /channels/twilio/voice/calls` — authenticated outbound call creation
-  (`{"to":"+1555...","external_id":"candidate-1"}`).
+- `POST /twilio/calls` (alias `/channels/twilio/voice/calls`) — authenticated
+  outbound call creation (`{"to":"+1555...","external_id":"candidate-1"}`).
+- `POST /twilio/messages` — authenticated Twilio Messaging API send for SMS or
+  WhatsApp (`{"to":"+1555...","body":"...","channel":"sms|whatsapp"}`), with
+  optional `from` and `media_url`.
+- `POST /channels/twilio/message-status` — signed SMS/WhatsApp status callback.
 - `POST /channels/twilio/voice/start` — tokenized TwiML entry for outbound calls.
 - `POST /channels/twilio/voice/stream` — signed TwiML `<Connect><Stream>` entry.
 - `GET /channels/twilio/voice/media` — tokenized WebSocket media stream. It
@@ -432,6 +470,34 @@ Voice notes are downloaded only from allowed Twilio hosts over HTTPS, capped at
 message receives the opening question; subsequent messages advance the shared
 interview. Messaging-window/template enforcement and WhatsApp live calling remain
 pending.
+
+## Calendar integrations
+
+Google Calendar and Microsoft Graph/Outlook are supported for interview event
+creation. Microsoft events can request a Teams online meeting; Google events can
+request a Meet conference. Credentials stay server-side.
+
+```bash
+# Static access token or refresh-token OAuth
+GOOGLE_CALENDAR_ACCESS_TOKEN=...       # or GOOGLE_CALENDAR_REFRESH_TOKEN + client creds
+GOOGLE_CALENDAR_ID=primary
+MICROSOFT_GRAPH_ACCESS_TOKEN=...       # or MICROSOFT_REFRESH_TOKEN + client creds
+MICROSOFT_GRAPH_USER_ID=               # optional; defaults to /me
+```
+
+```bash
+curl -X POST http://127.0.0.1:8787/calendars/events \
+  -H "Authorization: Bearer $GATEWAY_API_KEY" -H "Content-Type: application/json" \
+  -d '{"provider":"outlook","subject":"Senior Backend Interview",
+       "description":"Interview with PyInterviewBot","start":"2026-10-26T10:00:00Z",
+       "end":"2026-10-26T11:00:00Z","timezone":"UTC",
+       "attendees":["candidate@example.com"],"create_online_meeting":true}'
+```
+
+`GET /calendars/providers` reports configured providers. Scheduled calendar
+events use `POST /schedules` with `"action":"calendar_event"` and a payload
+matching the event request. Live Google/Microsoft validation requires OAuth
+client configuration and tenant consent; no live calendar API call has been run.
 
 ## Scheduled outbound actions
 
@@ -461,8 +527,10 @@ curl -X DELETE -H "Authorization: Bearer $GATEWAY_API_KEY" \
 
 Configuration: `SCHEDULER_DB_PATH` (default `data/schedules.db`),
 `SCHEDULER_INTERVAL_SECONDS` (default 5), `TWILIO_WHATSAPP_FROM` for WhatsApp
-sends. Failed actions retry with bounded backoff and become terminal after three
-attempts. Stale `dispatching` claims are recovered after five minutes.
+sends, and `TWILIO_SMS_FROM`/`TWILIO_FROM_NUMBER` for SMS. Scheduled message
+actions use `"action":"twilio_message"` with a Twilio message payload. Failed
+actions retry with bounded backoff and become terminal after three attempts.
+Stale `dispatching` claims are recovered after five minutes.
 
 ## Channel-neutral interview API
 
