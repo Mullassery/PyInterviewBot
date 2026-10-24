@@ -69,8 +69,14 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
 - Model ids are arbitrary OpenRouter ids (not OpenAI-specific); models that reject
   `response_format` fall back once to prompt-constrained JSON.
 - Contract tests cover non-OpenAI model ids, request shape, auth, retries,
-  invalid JSON, health, format fallback, and registry selection. Live OpenRouter
-  validation remains pending.
+  invalid JSON, health, format fallback, and registry selection.
+- Non-conforming action names from non-OpenAI models are normalized.
+- Added OpenRouter speech providers using the same key:
+  `/audio/transcriptions` (STT) and `/audio/speech` (TTS), with explicit
+  `OPENROUTER_STT_MODEL`/`OPENROUTER_TTS_MODEL` and optional voice/sample-rate
+  configuration.
+- A live free-model OpenRouter LLM request succeeded; speech models and
+  production model/region validation remain pending.
 
 ### Added (report generation and audit trail)
 

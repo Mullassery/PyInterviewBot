@@ -230,10 +230,17 @@ PYINTERVIEWBOT_ASR_PROVIDER=local
 PYINTERVIEWBOT_TTS_PROVIDER=local
 PYINTERVIEWBOT_LLM_PROVIDER=local
 
-# Optional OpenRouter cloud LLM (explicit model; key stays server-side)
+# Optional OpenRouter cloud AI (same key for questions and voice; model IDs explicit)
 PYINTERVIEWBOT_LLM_PROVIDER=openrouter
 OPENROUTER_API_KEY=...
 OPENROUTER_MODEL=anthropic/claude-3.5-sonnet  # any OpenRouter model id
+# optional speech providers using the same key:
+PYINTERVIEWBOT_ASR_PROVIDER=openrouter
+OPENROUTER_STT_MODEL=openai/whisper-1
+PYINTERVIEWBOT_TTS_PROVIDER=openrouter
+OPENROUTER_TTS_MODEL=openai/gpt-4o-mini-tts
+OPENROUTER_TTS_VOICE=alloy
+OPENROUTER_TTS_SOURCE_SAMPLE_RATE=24000
 # optional: OPENROUTER_BASE_URL, OPENROUTER_TIMEOUT_SECONDS,
 #           OPENROUTER_MAX_RETRIES, OPENROUTER_RESPONSE_FORMAT,
 #           OPENROUTER_SITE_URL, OPENROUTER_APP_NAME
@@ -244,9 +251,12 @@ OPENROUTER_MODEL=anthropic/claude-3.5-sonnet  # any OpenRouter model id
 and health. `OPENROUTER_MODEL` accepts any model id OpenRouter offers
 (OpenAI, Anthropic, Google, Meta, Mistral, Qwen, DeepSeek, and others). Changing
 the model is an explicit configuration change followed by a service restart;
-`/providers` exposes the active model id. Models without structured-output
-support are retried once without `response_format`. OpenRouter is a cloud dependency: prompts and interview context
-leave the machine and usage may be billed. Keep `OPENROUTER_API_KEY` server-side. The self-hosted Rust voice runtime lives in `voice-runtime/` and is
+`/providers` exposes the active model id. Models without structured-output support are retried once without
+`response_format`; non-conforming action names are normalized to the supported
+enum so non-OpenAI models can be used. OpenRouter is a cloud dependency: prompts and audio leave the machine when it
+is selected. A live free-model LLM check has passed; speech models and
+production model availability/latency remain unverified. Review OpenRouter's
+data-processing and model terms in the dashboard before enabling it. Keep `OPENROUTER_API_KEY` server-side. The self-hosted Rust voice runtime lives in `voice-runtime/` and is
 built/tested with the workspace. The managed-call workflow is optional and is
 never required—see [`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MATRIX.md).
 

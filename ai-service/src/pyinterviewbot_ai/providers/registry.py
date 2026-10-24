@@ -55,9 +55,16 @@ def _build(kind: str, provider: str) -> Any:
         from .openrouter import OpenRouterLanguageModel
 
         return OpenRouterLanguageModel()
+    if provider == "openrouter" and kind == "asr":
+        from .openrouter import OpenRouterSpeechToText
+
+        return OpenRouterSpeechToText()
+    if provider == "openrouter" and kind == "tts":
+        from .openrouter import OpenRouterTextToSpeech
+
+        return OpenRouterTextToSpeech()
     raise ValueError(
-        f"unknown {kind} provider '{provider}'; expected local, mock"
-        + (", or openrouter" if kind == "llm" else "")
+        f"unknown {kind} provider '{provider}'; expected local, mock, or openrouter"
     )
 
 
@@ -143,4 +150,8 @@ async def transcribe_media(data: bytes, suffix: str = ".ogg") -> str:
         from .. import asr
 
         return await asr.transcribe_media(data, suffix)
+    if provider == "openrouter":
+        from .openrouter import OpenRouterSpeechToText
+
+        return await OpenRouterSpeechToText().transcribe_media(data, suffix)
     raise ValueError(f"ASR provider '{provider}' does not support media transcription")

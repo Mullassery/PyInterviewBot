@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 from typing import Any
 
@@ -17,6 +18,9 @@ from ..models import AgentTurnDecision
 from .base import ProviderCapabilities, ProviderError, TurnContext
 
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
+logger = logging.getLogger(__name__)
+_NEXT_ACTIONS = {"probe", "clarify", "challenge", "move_on", "simulate", "conclude"}
+_EVIDENCE_STATUSES = {"confirmed", "weak", "contradicted", "not_addressed"}
 
 
 def _env_int(name: str, default: int) -> int:
@@ -24,6 +28,38 @@ def _env_int(name: str, default: int) -> int:
         return int(os.environ.get(name, str(default)))
     except ValueError:
         return default
+
+
+def _normalize_decision(payload: Any) -> AgentTurnDecision:
+    if not isinstance(payload, dict):
+        raise TypeError("model output is not a JSON object")
+    data = dict(payload)
+    updates = data.get("evidence_updates")
+    normalized_updates: list[dict[str, str]] = []
+    if isinstance(updates, list):
+        for update in updates:
+            if not isinstance(update, dict):
+                continue
+            node = update.get("node")
+            status = update.get("status")
+            note = update.get("note", "")
+            if isinstance(node, str) and status in _EVIDENCE_STATUSES:
+                normalized_updates.append(
+                    {"node": node, "status": status, "note": str(note)}
+                )
+    data["evidence_updates"] = normalized_updates
+
+    action = data.get("next_action", data.get("action", "probe"))
+    action = str(action).strip().lower()
+    if action not in _NEXT_ACTIONS:
+        logger.warning("normalizing unknown OpenRouter next_action %r", action)
+        action = "conclude" if data.get("is_complete") else "probe"
+    data["next_action"] = action
+    data["question_text"] = str(
+        data.get("question_text", data.get("question", data.get("text", "")))
+    )
+    data["is_complete"] = bool(data.get("is_complete", False))
+    return AgentTurnDecision.model_validate(data)
 
 
 def _strip_json(content: str) -> str:
@@ -181,7 +217,7 @@ class OpenRouterLanguageModel:
             try:
                 body = response.json()
                 content = body["choices"][0]["message"]["content"]
-                decision = AgentTurnDecision.model_validate(json.loads(_strip_json(content)))
+                decision = _normalize_decision(json.loads(_strip_json(content)))
                 return decision
             except (KeyError, IndexError, TypeError, json.JSONDecodeError, ValueError) as exc:
                 last_error = f"invalid model JSON: {exc}"
@@ -202,4 +238,200 @@ class OpenRouterLanguageModel:
         raise ProviderError("openrouter", last_error, retryable=False)
 
 
-__all__ = ["DEFAULT_BASE_URL", "OpenRouterLanguageModel"]
+__all__ = [
+    "DEFAULT_BASE_URL",
+    "OpenRouterLanguageModel",
+    "OpenRouterSpeechToText",
+    "OpenRouterTextToSpeech",
+]
+
+
+class OpenRouterSpeechToText:
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
+        timeout: float | None = None,
+        client: httpx.AsyncClient | None = None,
+    ) -> None:
+        self.api_key = api_key or os.environ.get("OPENROUTER_API_KEY")
+        self.model = model or os.environ.get("OPENROUTER_STT_MODEL")
+        if not self.api_key:
+            raise ValueError("OPENROUTER_API_KEY is required for the openrouter provider")
+        if not self.model:
+            raise ValueError("OPENROUTER_STT_MODEL is required for OpenRouter STT")
+        self.base_url = (
+            base_url or os.environ.get("OPENROUTER_BASE_URL", DEFAULT_BASE_URL)
+        ).rstrip("/")
+        self.timeout = timeout or float(
+            os.environ.get("OPENROUTER_TIMEOUT_SECONDS", "60")
+        )
+        self._client = client or httpx.AsyncClient(
+            base_url=self.base_url, timeout=self.timeout
+        )
+
+    def capabilities(self) -> ProviderCapabilities:
+        return ProviderCapabilities(
+            name=f"openrouter-stt:{self.model}",
+            kind="asr",
+            local=False,
+            notes="OpenRouter /audio/transcriptions; audio leaves the machine.",
+        )
+
+    def _headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self.api_key}"}
+
+    async def health(self) -> bool:
+        try:
+            response = await self._client.get(
+                "/models", headers=self._headers(), timeout=min(self.timeout, 10.0)
+            )
+        except httpx.HTTPError:
+            return False
+        return response.status_code < 400
+
+    async def _transcribe(self, data: bytes, audio_format: str, language: str) -> str:
+        import base64
+
+        response = await self._client.post(
+            "/audio/transcriptions",
+            headers=self._headers(),
+            json={
+                "model": self.model,
+                "input_audio": {
+                    "data": base64.b64encode(data).decode("ascii"),
+                    "format": audio_format,
+                },
+                "language": language,
+                "response_format": "json",
+            },
+            timeout=self.timeout,
+        )
+        if response.status_code >= 400:
+            raise ProviderError(
+                "openrouter-stt",
+                f"HTTP {response.status_code}: {response.text[:300]}",
+                retryable=response.status_code in {408, 429} or response.status_code >= 500,
+                status_code=response.status_code,
+            )
+        try:
+            return str(response.json().get("text", "")).strip()
+        except ValueError as exc:
+            raise ProviderError("openrouter-stt", f"invalid JSON: {exc}") from exc
+
+    async def transcribe(
+        self, pcm16_16khz: bytes, *, language: str = "en"
+    ) -> Any:
+        import io
+        import wave
+
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as writer:
+            writer.setnchannels(1)
+            writer.setsampwidth(2)
+            writer.setframerate(16_000)
+            writer.writeframes(pcm16_16khz)
+        from .base import TranscriptResult
+
+        text = await self._transcribe(buffer.getvalue(), "wav", language)
+        return TranscriptResult(text=text, language=language)
+
+    async def transcribe_media(self, data: bytes, suffix: str = ".ogg") -> str:
+        audio_format = suffix.lstrip(".").lower() or "wav"
+        return await self._transcribe(data, audio_format, "en")
+
+
+class OpenRouterTextToSpeech:
+    sample_rate = 22_050
+
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        model: str | None = None,
+        voice: str | None = None,
+        base_url: str | None = None,
+        timeout: float | None = None,
+        source_sample_rate: int | None = None,
+        client: httpx.AsyncClient | None = None,
+    ) -> None:
+        self.api_key = api_key or os.environ.get("OPENROUTER_API_KEY")
+        self.model = model or os.environ.get("OPENROUTER_TTS_MODEL")
+        if not self.api_key:
+            raise ValueError("OPENROUTER_API_KEY is required for the openrouter provider")
+        if not self.model:
+            raise ValueError("OPENROUTER_TTS_MODEL is required for OpenRouter TTS")
+        self.voice = voice or os.environ.get("OPENROUTER_TTS_VOICE")
+        self.base_url = (
+            base_url or os.environ.get("OPENROUTER_BASE_URL", DEFAULT_BASE_URL)
+        ).rstrip("/")
+        self.timeout = timeout or float(
+            os.environ.get("OPENROUTER_TIMEOUT_SECONDS", "60")
+        )
+        self.source_sample_rate = source_sample_rate or _env_int(
+            "OPENROUTER_TTS_SOURCE_SAMPLE_RATE", 24_000
+        )
+        self._client = client or httpx.AsyncClient(
+            base_url=self.base_url, timeout=self.timeout
+        )
+
+    def capabilities(self) -> ProviderCapabilities:
+        return ProviderCapabilities(
+            name=f"openrouter-tts:{self.model}",
+            kind="tts",
+            local=False,
+            streaming_output=False,
+            notes="OpenRouter /audio/speech; text leaves the machine.",
+        )
+
+    def _headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self.api_key}"}
+
+    async def health(self) -> bool:
+        try:
+            response = await self._client.get(
+                "/models", headers=self._headers(), timeout=min(self.timeout, 10.0)
+            )
+        except httpx.HTTPError:
+            return False
+        return response.status_code < 400
+
+    async def synthesize(self, text: str) -> Any:
+        import numpy as np
+
+        if not text.strip():
+            raise ProviderError("openrouter-tts", "text is empty")
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "input": text,
+            "response_format": "pcm",
+        }
+        if self.voice:
+            payload["voice"] = self.voice
+        response = await self._client.post(
+            "/audio/speech",
+            headers=self._headers(),
+            json=payload,
+            timeout=self.timeout,
+        )
+        if response.status_code >= 400:
+            raise ProviderError(
+                "openrouter-tts",
+                f"HTTP {response.status_code}: {response.text[:300]}",
+                retryable=response.status_code in {408, 429} or response.status_code >= 500,
+                status_code=response.status_code,
+            )
+        data = response.content
+        data = data[: len(data) - (len(data) % 2)]
+        if self.source_sample_rate != self.sample_rate:
+            samples = np.frombuffer(data, dtype="<i2")
+            if samples.size:
+                target_count = round(samples.size * self.sample_rate / self.source_sample_rate)
+                positions = np.linspace(0, samples.size - 1, target_count)
+                resampled = np.interp(positions, np.arange(samples.size), samples.astype(np.float64))
+                data = np.clip(resampled, -32768, 32767).astype("<i2").tobytes()
+        chunk_size = 8192
+        for start in range(0, len(data), chunk_size):
+            yield data[start : start + chunk_size]

@@ -21,7 +21,7 @@ distribution or commercial use.
 | Telephony / WebRTC | No (transport-independent core) | No (raw WebSocket PCM16) |
 | Offline / no account | Yes | Yes (after models installed) |
 | Status in this repo | Implemented; mock and local neural paths tested | Working, tested |
-| Cloud LLM option | OpenRouter adapter implemented, contract-tested (not live-verified) | Local/mock remain default |
+| Cloud AI option | OpenRouter LLM live-checked (free model); OpenRouter TTS/STT contract-tested but not live-verified | Local/mock remain default |
 | Cost | Infrastructure only | Infrastructure only |
 
 ## Decision
