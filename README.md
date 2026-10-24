@@ -212,11 +212,16 @@ curl -H "Authorization: Bearer $GATEWAY_API_KEY" \
   http://127.0.0.1:8787/native/voice/health
 curl -H "Authorization: Bearer $GATEWAY_API_KEY" \
   http://127.0.0.1:8787/native/voice/capabilities
+curl -H "Authorization: Bearer $GATEWAY_API_KEY" \
+  http://127.0.0.1:8787/native/voice/engines
 SID=$(curl -s -X POST -H "Authorization: Bearer $GATEWAY_API_KEY" \
   http://127.0.0.1:8787/native/voice/sessions | jq -r .session_id)
 curl -H "Authorization: Bearer $GATEWAY_API_KEY" -H 'content-type: application/json' \
   -X POST http://127.0.0.1:8787/native/voice/sessions/$SID/speak \
   -d '{"text":"Tell me about the system."}' --output speech.pcm
+curl -H "Authorization: Bearer $GATEWAY_API_KEY" -H 'content-type: application/json' \
+  -X POST http://127.0.0.1:8787/native/voice/sessions/$SID/speak/stream \
+  -d '{"text":"Tell me about the system."}' --output speech-stream.pcm
 curl -H "Authorization: Bearer $GATEWAY_API_KEY" -H 'content-type: application/octet-stream' \
   -X POST 'http://127.0.0.1:8787/native/voice/sessions/'$SID'/transcribe?sample_rate=16000' \
   --data-binary @answer.pcm
@@ -244,7 +249,13 @@ optional managed-call workflow with `MANAGED_CALL_API_KEY`,
 `MANAGED_CALL_BASE_URL`, and `MANAGED_CALL_WEBHOOK_SECRET` (plus
 `MANAGED_CALL_WEBHOOK_AUTH_MODE=bearer|hmac`); no provider account is required
 for the local path. Webhook bodies are size-limited, authenticated in constant
-time, and de-duplicated before normalization.
+time, and de-duplicated before normalization. Transport retries use
+`MANAGED_CALL_MAX_RETRIES` (default 2) and `MANAGED_CALL_RETRY_BASE_MS`
+(default 200) with exponential backoff for retryable failures.
+
+`/native/voice/engines` lists registered speech engines, default selection, and
+health. The default engine remains the deterministic mock until a real local
+engine is registered.
 
 ## Templates, reports, and human review
 
@@ -314,6 +325,7 @@ docs/
 
 ## Documentation
 
+- [docs/ROADMAP.md](docs/ROADMAP.md) — completed and pending phases with verification status.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — layered design, what's real vs. simplified,
   and the two timing bugs found and fixed while building the integration test.
 - [docs/internal/ROADMAP_HONEST.md](docs/internal/ROADMAP_HONEST.md) — exactly what's tested, built-but-unverified, and

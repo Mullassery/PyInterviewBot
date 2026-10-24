@@ -14,8 +14,8 @@ use session::{SessionConfig, DEFAULT_MAX_UTTERANCE_BYTES};
 use tracing_subscriber::EnvFilter;
 use vad::DEFAULT_SILENCE_MS_TO_END_TURN;
 use voice_runtime::{
-    ManagedCallClient, ManagedCallConfig, ManagedCallWorkflow, MockSpeechEngine, SpeechStudio,
-    StudioConfig, WebhookVerifier,
+    EngineCatalog, ManagedCallClient, ManagedCallConfig, ManagedCallWorkflow, MockSpeechEngine,
+    SpeechStudio, StudioConfig, WebhookVerifier,
 };
 use ws_handler::AppState;
 
@@ -57,8 +57,12 @@ async fn main() {
         max_utterance_bytes: env_usize("GATEWAY_MAX_UTTERANCE_BYTES", DEFAULT_MAX_UTTERANCE_BYTES),
     };
 
+    let engines =
+        Arc::new(EngineCatalog::new("mock").register(Arc::new(MockSpeechEngine::default())));
     let studio = Arc::new(SpeechStudio::new(
-        Arc::new(MockSpeechEngine::default()),
+        engines
+            .default_engine()
+            .expect("mock engine is registered by default"),
         StudioConfig::default(),
     ));
     let managed_config = ManagedCallConfig::from_env();
@@ -82,6 +86,7 @@ async fn main() {
             .filter(|k| !k.is_empty()),
         session_config,
         studio,
+        engines,
         managed_call,
     };
 

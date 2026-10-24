@@ -325,15 +325,16 @@ be done incrementally without rewriting interview domain logic.
 `voice-runtime/src/studio.rs` is the in-repo speech-studio implementation:
 audio formats, PCM16/WAV encode/decode, linear resampling, RMS/silence-trim/
 peak-normalize/concatenate/chunk processing, bounded text/audio, session
-lifecycle, cancellation, idle sweeping, explicit in-memory recording/export
-with deletion, and replaceable `SpeechEngine` contracts with a deterministic
-mock engine. It is not an adapter to an external desktop application. Recording
+lifecycle, cancellation, idle sweeping, chunked TTS delivery, engine catalogue
+and health discovery, explicit in-memory recording/export with deletion, and
+replaceable `SpeechEngine` contracts with a deterministic mock engine. It is not an adapter to an external desktop application. Recording
 is never automatic; it starts only through the explicit record endpoint and is
 dropped on clear or session close.
 
 `voice-runtime/src/managed_call.rs` implements the optional managed-call
-workflow: a server-side client for call create/get/end, constant-time Bearer or
-HMAC webhook verification, bounded/idempotent event ingestion, and normalized
-provider events. Private credentials never enter browser/mobile code. The
+workflow: a server-side client for call create/get/end with bounded exponential
+backoff for retryable transport failures, constant-time Bearer or HMAC webhook
+verification, bounded/idempotent event ingestion, and normalized provider
+events. Private credentials never enter browser/mobile code. The
 upstream managed platform is proprietary and not self-hosted; the local path is
 independent of it.

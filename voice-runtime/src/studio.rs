@@ -182,6 +182,16 @@ impl AudioBuffer {
         self.pcm16.chunks(max_bytes).map(<[u8]>::to_vec).collect()
     }
 
+    pub fn chunked_buffers(&self, max_bytes: usize) -> Vec<AudioBuffer> {
+        self.chunked(max_bytes)
+            .into_iter()
+            .map(|pcm16| AudioBuffer {
+                format: self.format,
+                pcm16,
+            })
+            .collect()
+    }
+
     pub fn to_wav(&self) -> Vec<u8> {
         encode_wav(self)
     }
@@ -339,6 +349,71 @@ pub enum StudioError {
     Timeout,
     #[error("engine internal error: {0}")]
     EngineInternal(String),
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct EngineDescriptor {
+    pub name: String,
+    pub is_default: bool,
+    pub healthy: bool,
+    pub capabilities: StudioCapabilities,
+}
+
+#[derive(Clone)]
+pub struct EngineCatalog {
+    engines: HashMap<String, Arc<dyn SpeechEngine>>,
+    default_engine: String,
+}
+
+impl EngineCatalog {
+    pub fn new(default_engine: impl Into<String>) -> Self {
+        Self {
+            engines: HashMap::new(),
+            default_engine: default_engine.into(),
+        }
+    }
+
+    pub fn register(mut self, engine: Arc<dyn SpeechEngine>) -> Self {
+        let name = engine.capabilities().engine;
+        self.engines.insert(name, engine);
+        self
+    }
+
+    pub fn default_engine(&self) -> Result<Arc<dyn SpeechEngine>, StudioError> {
+        self.engines
+            .get(&self.default_engine)
+            .cloned()
+            .ok_or_else(|| {
+                StudioError::EngineUnavailable(format!(
+                    "default engine '{}' is not registered",
+                    self.default_engine
+                ))
+            })
+    }
+
+    pub fn engine(&self, name: &str) -> Option<Arc<dyn SpeechEngine>> {
+        self.engines.get(name).cloned()
+    }
+
+    pub fn names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.engines.keys().cloned().collect();
+        names.sort();
+        names
+    }
+
+    pub async fn describe(&self) -> Vec<EngineDescriptor> {
+        let mut descriptors = Vec::new();
+        for (name, engine) in &self.engines {
+            descriptors.push(EngineDescriptor {
+                name: name.clone(),
+                is_default: name == &self.default_engine,
+                healthy: engine.health().await.unwrap_or(false),
+                capabilities: engine.capabilities(),
+            });
+        }
+        descriptors.sort_by(|left, right| left.name.cmp(&right.name));
+        descriptors
+    }
 }
 
 pub trait SpeechEngine: Send + Sync + 'static {
@@ -541,6 +616,16 @@ impl SpeechStudio {
             sample_rate: audio.format.sample_rate,
         });
         Ok(audio)
+    }
+
+    pub async fn speak_stream(
+        &self,
+        session_id: StudioSessionId,
+        text: &str,
+        voice: &str,
+    ) -> Result<Vec<AudioBuffer>, StudioError> {
+        let audio = self.speak(session_id, text, voice).await?;
+        Ok(audio.chunked_buffers(8192))
     }
 
     pub async fn interrupt(&self, session_id: StudioSessionId) -> Result<bool, StudioError> {
@@ -893,6 +978,39 @@ mod tests {
         let chunks = normalized.chunked(4);
         assert!(chunks.iter().all(|chunk| chunk.len() <= 4));
         assert_eq!(chunks.concat(), normalized.pcm16);
+    }
+
+    #[tokio::test]
+    async fn streaming_chunks_match_full_speech() {
+        let studio = studio();
+        let id = studio.start_session().await.unwrap();
+        let full = studio
+            .speak(id, "stream this answer", "default")
+            .await
+            .unwrap();
+        let chunks = studio
+            .speak_stream(id, "stream this answer", "default")
+            .await
+            .unwrap();
+        assert!(chunks.len() > 1);
+        assert_eq!(
+            chunks
+                .iter()
+                .flat_map(|chunk| chunk.pcm16.clone())
+                .collect::<Vec<u8>>(),
+            full.pcm16
+        );
+    }
+
+    #[tokio::test]
+    async fn engine_catalog_reports_registered_engines() {
+        let catalog = EngineCatalog::new("mock").register(Arc::new(MockSpeechEngine::default()));
+        assert_eq!(catalog.names(), vec!["mock".to_string()]);
+        assert!(catalog.engine("missing").is_none());
+        let descriptions = catalog.describe().await;
+        assert_eq!(descriptions.len(), 1);
+        assert!(descriptions[0].is_default);
+        assert!(descriptions[0].healthy);
     }
 
     #[tokio::test]

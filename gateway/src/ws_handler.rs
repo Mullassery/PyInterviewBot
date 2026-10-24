@@ -36,7 +36,7 @@ use crate::ai_client::{AiClient, AiClientError};
 use crate::session::{Session, SessionConfig};
 use crate::state_machine::{transition, Event};
 use crate::vad::VadEvent;
-use voice_runtime::{ManagedCallWorkflow, SpeechStudio};
+use voice_runtime::{EngineCatalog, ManagedCallWorkflow, SpeechStudio};
 
 const FALLBACK_PHRASE: &str = "Sorry, I didn't quite catch that. Could you say that again?";
 const TOO_LONG_MESSAGE: &str =
@@ -59,6 +59,7 @@ pub struct AppState {
     pub api_key: Option<String>,
     pub session_config: SessionConfig,
     pub studio: Arc<SpeechStudio>,
+    pub engines: Arc<EngineCatalog>,
     pub managed_call: Option<Arc<ManagedCallWorkflow>>,
 }
 

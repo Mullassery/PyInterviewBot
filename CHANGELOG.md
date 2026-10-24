@@ -35,6 +35,13 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
 - `/asr/transcribe` payload cap (`PYINTERVIEWBOT_MAX_AUDIO_BYTES`, 413 on
   overflow), plus `/providers` and `/templates` discovery endpoints.
 
+### Added (Phase 4 continuation)
+
+- Chunked TTS delivery at `/native/voice/sessions/{id}/speak/stream`.
+- Engine catalogue and health discovery at `/native/voice/engines`.
+- Managed-call exponential-backoff retries for retryable transport failures
+  (`MANAGED_CALL_MAX_RETRIES`, `MANAGED_CALL_RETRY_BASE_MS`).
+
 ### Security (2026-10-25, hardening increment)
 
 - Per-session tokens: `POST /sessions` returns a token, only its hash is

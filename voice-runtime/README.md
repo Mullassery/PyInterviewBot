@@ -14,12 +14,14 @@ questions, evidence, or evaluation:
 - `MockVoiceProvider` for deterministic CI/local use.
 - `studio` module: native speech-studio core with PCM16/WAV codecs, linear
   resampling, RMS/silence-trim/peak-normalize/concatenate/chunk processing,
-  bounded audio/text, explicit in-memory recording/export and deletion, session
-  lifecycle, cancellation, idle sweeping, and replaceable `SpeechEngine`
-  contracts plus a mock engine.
+  bounded audio/text, explicit in-memory recording/export and deletion, chunked
+  TTS output, engine catalogue/health discovery, session lifecycle,
+  cancellation, idle sweeping, and replaceable `SpeechEngine` contracts plus a
+  mock engine.
 - `managed_call` module: optional server-side managed-call workflow with call
-  create/get/end, constant-time Bearer/HMAC webhook verification, bounded
-  idempotent event ingestion, and normalized provider events.
+  create/get/end, exponential-backoff retries for retryable failures,
+  constant-time Bearer/HMAC webhook verification, bounded idempotent event
+  ingestion, and normalized provider events.
 
 ## Example
 

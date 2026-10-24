@@ -43,6 +43,8 @@ pub struct ManagedCallConfig {
     pub webhook_auth: WebhookAuth,
     pub timeout: Duration,
     pub max_webhook_bytes: usize,
+    pub max_retries: u32,
+    pub retry_base_delay: Duration,
 }
 
 impl fmt::Debug for ManagedCallConfig {
@@ -57,6 +59,8 @@ impl fmt::Debug for ManagedCallConfig {
             .field("webhook_auth", &self.webhook_auth)
             .field("timeout", &self.timeout)
             .field("max_webhook_bytes", &self.max_webhook_bytes)
+            .field("max_retries", &self.max_retries)
+            .field("retry_base_delay", &self.retry_base_delay)
             .finish()
     }
 }
@@ -73,6 +77,8 @@ impl Default for ManagedCallConfig {
             },
             timeout: Duration::from_secs(30),
             max_webhook_bytes: DEFAULT_MAX_WEBHOOK_BYTES,
+            max_retries: 2,
+            retry_base_delay: Duration::from_millis(200),
         }
     }
 }
@@ -112,6 +118,16 @@ impl ManagedCallConfig {
                 .ok()
                 .and_then(|value| value.parse().ok())
                 .unwrap_or(DEFAULT_MAX_WEBHOOK_BYTES),
+            max_retries: std::env::var("MANAGED_CALL_MAX_RETRIES")
+                .ok()
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(2),
+            retry_base_delay: Duration::from_millis(
+                std::env::var("MANAGED_CALL_RETRY_BASE_MS")
+                    .ok()
+                    .and_then(|value| value.parse().ok())
+                    .unwrap_or(200),
+            ),
         }
     }
 }
@@ -226,16 +242,41 @@ impl ManagedCallClient {
         path: &str,
         body: Option<Value>,
     ) -> Result<ManagedCall, ManagedCallError> {
+        let mut attempt: u32 = 0;
+        loop {
+            match self.send_once(&method, path, body.as_ref()).await {
+                Ok(call) => return Ok(call),
+                Err(error) => {
+                    if !error.retryable() || attempt >= self.config.max_retries {
+                        return Err(error);
+                    }
+                    let delay = self
+                        .config
+                        .retry_base_delay
+                        .saturating_mul(1u32 << attempt.min(8));
+                    attempt += 1;
+                    tokio::time::sleep(delay).await;
+                }
+            }
+        }
+    }
+
+    async fn send_once(
+        &self,
+        method: &reqwest::Method,
+        path: &str,
+        body: Option<&Value>,
+    ) -> Result<ManagedCall, ManagedCallError> {
         let key = self.config.api_key.as_deref().ok_or_else(|| {
             ManagedCallError::NotConfigured("MANAGED_CALL_API_KEY is required".to_string())
         })?;
         let url = format!("{}{}", self.config.base_url.trim_end_matches('/'), path);
         let mut builder = self
             .http
-            .request(method, url)
+            .request(method.clone(), url)
             .header("Authorization", format!("Bearer {key}"));
         if let Some(body) = body {
-            builder = builder.json(&body);
+            builder = builder.json(body);
         }
         let response = builder
             .send()
@@ -812,6 +853,81 @@ mod tests {
         assert!(requests[0].contains("Bearer private-key"));
         assert_eq!(requests[1], "GET");
         assert_eq!(requests[2], "DELETE");
+    }
+
+    #[tokio::test]
+    async fn retries_retryable_statuses_with_backoff() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let handler_attempts = attempts.clone();
+        let app = Router::new().route(
+            "/call",
+            post(move || {
+                let attempts = handler_attempts.clone();
+                async move {
+                    let attempt = attempts.fetch_add(1, Ordering::SeqCst) + 1;
+                    if attempt <= 2 {
+                        (
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            Json(json!({"error": "busy"})),
+                        )
+                    } else {
+                        (StatusCode::CREATED, Json(json!({"id": "call-1"})))
+                    }
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let client = ManagedCallClient::new(ManagedCallConfig {
+            api_key: Some("key".to_string()),
+            base_url: format!("http://{address}"),
+            max_retries: 2,
+            retry_base_delay: Duration::from_millis(1),
+            ..ManagedCallConfig::default()
+        })
+        .unwrap();
+        let call = client
+            .create_call(json!({"assistantId": "a-1"}))
+            .await
+            .unwrap();
+        assert_eq!(call.id, "call-1");
+        assert_eq!(attempts.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn does_not_retry_non_retryable_statuses() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let handler_attempts = attempts.clone();
+        let app = Router::new().route(
+            "/call",
+            post(move || {
+                let attempts = handler_attempts.clone();
+                async move {
+                    attempts.fetch_add(1, Ordering::SeqCst);
+                    (StatusCode::BAD_REQUEST, Json(json!({"error": "invalid"})))
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let client = ManagedCallClient::new(ManagedCallConfig {
+            api_key: Some("key".to_string()),
+            base_url: format!("http://{address}"),
+            max_retries: 3,
+            retry_base_delay: Duration::from_millis(1),
+            ..ManagedCallConfig::default()
+        })
+        .unwrap();
+        assert!(client.create_call(json!({})).await.is_err());
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

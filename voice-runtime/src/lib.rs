@@ -25,6 +25,6 @@ pub use provider::{
 pub use runtime::{RuntimeConfig, RuntimeError, VoiceRuntime};
 pub use state::{transition as transition_voice, VoiceState, VoiceTransition};
 pub use studio::{
-    AudioBuffer, AudioFormat, MockSpeechEngine, SpeechEngine, SpeechStudio, StudioCapabilities,
-    StudioConfig, StudioError, StudioEvent, StudioSessionId,
+    AudioBuffer, AudioFormat, EngineCatalog, EngineDescriptor, MockSpeechEngine, SpeechEngine,
+    SpeechStudio, StudioCapabilities, StudioConfig, StudioError, StudioEvent, StudioSessionId,
 };

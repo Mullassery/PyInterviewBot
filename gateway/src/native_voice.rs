@@ -6,15 +6,17 @@
 use std::collections::HashMap;
 
 use axum::{
-    body::Bytes,
+    body::{Body, Bytes},
     extract::{DefaultBodyLimit, Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{delete, get, post},
     Json, Router,
 };
+use futures_util::stream;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::convert::Infallible;
 use uuid::Uuid;
 
 use voice_runtime::{
@@ -29,8 +31,13 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/native/voice/health", get(health))
         .route("/native/voice/capabilities", get(capabilities))
+        .route("/native/voice/engines", get(engines))
         .route("/native/voice/sessions", post(create_session))
         .route("/native/voice/sessions/{id}/speak", post(speak))
+        .route(
+            "/native/voice/sessions/{id}/speak/stream",
+            post(speak_stream),
+        )
         .route(
             "/native/voice/sessions/{id}/transcribe",
             post(transcribe).layer(DefaultBodyLimit::max(MAX_BODY_BYTES)),
@@ -161,6 +168,17 @@ async fn capabilities(
     Json(state.studio.capabilities()).into_response()
 }
 
+async fn engines(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    if let Some(response) = check_auth(&state, &headers, &query) {
+        return response;
+    }
+    Json(state.engines.describe().await).into_response()
+}
+
 async fn create_session(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -227,6 +245,48 @@ fn audio_response(audio: &AudioBuffer) -> Response {
             .expect("numeric header"),
     );
     (headers, audio.pcm16.clone()).into_response()
+}
+
+async fn speak_stream(
+    State(state): State<AppState>,
+    Path(session_id): Path<Uuid>,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+    Json(request): Json<SpeakRequest>,
+) -> Response {
+    if let Some(response) = check_auth(&state, &headers, &query) {
+        return response;
+    }
+    match state
+        .studio
+        .speak_stream(session_id, &request.text, &request.voice)
+        .await
+    {
+        Ok(chunks) => {
+            let sample_rate = chunks
+                .first()
+                .map(|chunk| chunk.format.sample_rate)
+                .unwrap_or(22_050);
+            let mut response_headers = HeaderMap::new();
+            response_headers.insert(
+                "content-type",
+                format!("audio/L16;rate={sample_rate};channels=1")
+                    .parse()
+                    .expect("static header"),
+            );
+            response_headers.insert(
+                "x-sample-rate",
+                sample_rate.to_string().parse().expect("numeric header"),
+            );
+            let body = Body::from_stream(stream::iter(
+                chunks
+                    .into_iter()
+                    .map(|chunk| Ok::<Vec<u8>, Infallible>(chunk.pcm16)),
+            ));
+            (response_headers, body).into_response()
+        }
+        Err(error) => studio_error(error),
+    }
 }
 
 async fn transcribe(
