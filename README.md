@@ -111,11 +111,13 @@ dependency-ordered plan and exact blockers.
 ## Project status
 
 **Working MVP / early prototype.** Version 0.1.1 plus the 2026-10-25 hardening and
-Phase 7 channel-domain work. The local web voice path, deterministic mock path, native
-Rust runtime, recording controls, and channel-neutral API are tested. Twilio, WhatsApp,
-and Teams adapters are not implemented; the optional managed-call provider path remains
-unverified. See [`docs/ROADMAP.md`](docs/ROADMAP.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md),
-and [`CHANGELOG.md`](CHANGELOG.md).
+multi-channel work. The local web voice path, deterministic mock path, native Rust
+runtime, recording controls, channel-neutral API, scheduler, reminders, Twilio
+voice/Media Streams, WhatsApp text/voice-note intake, and Google/Outlook event
+creation are implemented and locally tested. Live Twilio/WhatsApp/Google/Microsoft
+validation remains pending, and Teams transcript/live-bot integration is not
+implemented. See [`docs/ROADMAP.md`](docs/ROADMAP.md),
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), and [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Installation
 
@@ -444,157 +446,10 @@ curl -X POST http://127.0.0.1:8000/channels/twilio_voice/messages \
 
 Supported channel identifiers: `web`, `twilio_voice`, `whatsapp_text`,
 `whatsapp_voice_note`, `teams`. The shared domain and durable mapping are
-implemented; provider webhook adapters for Twilio, WhatsApp, and Teams are still
-pending. See [`docs/ROADMAP.md`](docs/ROADMAP.md).
-
-## Twilio voice configuration
-
-The gateway exposes Twilio Programmable Voice webhooks for gather/transcribe
-interviews:
-
-```bash
-TWILIO_AUTH_TOKEN=... TWILIO_PUBLIC_BASE_URL=https://your-public-host TWILIO_ACCOUNT_SID=AC... TWILIO_FROM_NUMBER=+15550001111 cargo run -p gateway
-```
-
-Routes:
-
-- `POST /channels/twilio/voice/inbound` — signed inbound call webhook.
-- `POST /channels/twilio/voice/turn` — signed gather result webhook.
-- `POST /channels/twilio/voice/status` — signed call lifecycle callback.
-- `POST /twilio/calls` (alias `/channels/twilio/voice/calls`) — authenticated
-  outbound call creation (`{"to":"+1555...","external_id":"candidate-1"}`).
-- `POST /twilio/messages` — authenticated Twilio Messaging API send for SMS or
-  WhatsApp (`{"to":"+1555...","body":"...","channel":"sms|whatsapp"}`), with
-  optional `from` and `media_url`.
-- `POST /channels/twilio/message-status` — signed SMS/WhatsApp status callback.
-- `POST /channels/twilio/voice/start` — tokenized TwiML entry for outbound calls.
-- `POST /channels/twilio/voice/stream` — signed TwiML `<Connect><Stream>` entry.
-- `GET /channels/twilio/voice/media` — tokenized WebSocket media stream. It
-  decodes Twilio μ-law 8kHz audio, runs VAD turn detection at 16kHz, transcribes,
-  advances the interview, and returns μ-law TTS audio. Playback sends 20ms
-  frames and sends a Twilio `clear` event on detected barge-in.
-
-Signatures use the documented `X-Twilio-Signature` HMAC-SHA1 scheme over the
-public URL plus sorted POST parameters. Call SID and speech text form the
-idempotent event ID. Live calls require an approved Twilio account and public
-HTTPS callback URL; only signed mock-engine webhooks have been verified locally.
-Media Streams are implemented and locally smoke-tested. Live call validation and
-provider-specific media-limit behavior remain unverified.
-
-WhatsApp support reuses the Twilio signature/media configuration:
-
-- `POST /channels/whatsapp/inbound` — signed text and voice-note webhook.
-- `POST /channels/whatsapp/status` — signed delivery/read status callback.
-
-Voice notes are downloaded only from allowed Twilio hosts over HTTPS, capped at
-10 MiB, and transcribed via the configured ASR provider. The first inbound
-message receives the opening question; subsequent messages advance the shared
-interview. Messaging-window/template enforcement and WhatsApp live calling remain
-pending.
-
-## Calendar integrations
-
-Google Calendar and Microsoft Graph/Outlook are supported for interview event
-creation. Microsoft events can request a Teams online meeting; Google events can
-request a Meet conference. Credentials stay server-side.
-
-```bash
-# Static access token or refresh-token OAuth
-GOOGLE_CALENDAR_ACCESS_TOKEN=...       # or GOOGLE_CALENDAR_REFRESH_TOKEN + client creds
-GOOGLE_CALENDAR_ID=primary
-MICROSOFT_GRAPH_ACCESS_TOKEN=...       # or MICROSOFT_REFRESH_TOKEN + client creds
-MICROSOFT_GRAPH_USER_ID=               # optional; defaults to /me
-```
-
-```bash
-curl -X POST http://127.0.0.1:8787/calendars/events \
-  -H "Authorization: Bearer $GATEWAY_API_KEY" -H "Content-Type: application/json" \
-  -d '{"provider":"outlook","subject":"Senior Backend Interview",
-       "description":"Interview with PyInterviewBot","start":"2026-10-26T10:00:00Z",
-       "end":"2026-10-26T11:00:00Z","timezone":"UTC",
-       "attendees":["candidate@example.com"],"create_online_meeting":true}'
-```
-
-`GET /calendars/providers` reports configured providers. Scheduled calendar
-events use `POST /schedules` with `"action":"calendar_event"` and a payload
-matching the event request. Live Google/Microsoft validation requires OAuth
-client configuration and tenant consent; no live calendar API call has been run.
-
-## Scheduled outbound actions
-
-A durable SQLite-backed scheduler sends WhatsApp messages or starts Twilio calls
-at a requested time. It is admin-authenticated, idempotent, bounded-retry, and
-survives gateway restarts:
-
-```bash
-# Schedule a WhatsApp message
-curl -X POST http://127.0.0.1:8787/schedules \
-  -H "Authorization: Bearer $GATEWAY_API_KEY" -H "Content-Type: application/json" \
-  -d '{"action":"whatsapp_message","external_id":"+15551234567",
-       "send_at":"2026-10-26T09:00:00Z",
-       "payload":{"body":"Your interview starts in 10 minutes."},
-       "idempotency_key":"invite-candidate-1"}'
-
-# Schedule a Twilio call
-curl -X POST http://127.0.0.1:8787/schedules \
-  -H "Authorization: Bearer $GATEWAY_API_KEY" -H "Content-Type: application/json" \
-  -d '{"action":"twilio_call","external_id":"candidate-1",
-       "send_at":"2026-10-26T10:00:00Z","payload":{"to":"+15551234567"}}'
-
-curl -H "Authorization: Bearer $GATEWAY_API_KEY" http://127.0.0.1:8787/schedules
-curl -X DELETE -H "Authorization: Bearer $GATEWAY_API_KEY" \
-  http://127.0.0.1:8787/schedules/<id>
-```
-
-Configuration: `SCHEDULER_DB_PATH` (default `data/schedules.db`),
-`SCHEDULER_INTERVAL_SECONDS` (default 5), `TWILIO_WHATSAPP_FROM` for WhatsApp
-sends, and `TWILIO_SMS_FROM`/`TWILIO_FROM_NUMBER` for SMS. Scheduled message
-actions use `"action":"twilio_message"` with a Twilio message payload. Failed
-actions retry with bounded backoff and become terminal after three attempts.
-Stale `dispatching` claims are recovered after five minutes.
-
-## Interview reminders
-
-Reminders are planned into the same durable scheduler used for outbound actions.
-They support WhatsApp, SMS, and optional reminder calls at configurable offsets:
-
-```bash
-curl -X POST http://127.0.0.1:8787/reminders \
-  -H "Authorization: Bearer $GATEWAY_API_KEY" -H "Content-Type: application/json" \
-  -d '{"interview_id":"interview-1","external_id":"+15551234567",
-       "start_at":"2026-10-27T10:00:00Z",
-       "offsets_minutes":[1440,60,10],
-       "channels":["whatsapp","sms","voice"],
-       "message":"Interview reminder: starts in {minutes} minutes."}'
-```
-
-Each channel/offset becomes a `twilio_message` or `twilio_call` schedule with an
-idempotency key derived from interview, offset, and channel. Re-posting the same
-reminder request returns the existing schedule IDs instead of duplicating sends.
-Past offsets are skipped. Delivery uses the scheduler worker and its bounded
-retries; live Twilio validation remains required.
-
-## Channel-neutral interview API
-
-Channel adapters create or resume an interview for an external identity and submit
-idempotent messages to the existing interview engine:
-
-```bash
-# Create or resume a session (channel: web, twilio_voice, whatsapp_text,
-# whatsapp_voice_note, teams)
-curl -X POST http://127.0.0.1:8000/channels/twilio_voice/sessions \
-  -H "X-API-Key: change-me" -H "Content-Type: application/json" \
-  -d '{"external_id":"+15551234567","template_id":"backend_engineer"}'
-
-# Submit one candidate message. Duplicate event IDs return the same result.
-curl -X POST http://127.0.0.1:8000/channels/twilio_voice/messages \
-  -H "X-API-Key: change-me" -H "Content-Type: application/json" \
-  -d '{"external_id":"+15551234567","event_id":"CA123:turn-1","text":"I owned the design."}'
-```
-
-The channel domain and durable mapping are implemented. Provider-specific webhook
-parsing, Twilio TwiML/Media Streams, WhatsApp media handling, and Teams Graph
-integration are pending. See [`docs/ROADMAP.md`](docs/ROADMAP.md).
+implemented. Twilio voice/Media Streams and WhatsApp text/voice-note adapters are
+implemented but not live-verified; Teams event/join-URL creation is partial, and
+Teams transcript/live participation remains pending. See
+[`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Templates, reports, and human review
 
@@ -681,13 +536,18 @@ docs/
 ## Known issues and deferred work
 
 **Open:**
-- TLS/WSS, per-session authorization/tenant isolation, rate limits/quotas, audio
-  retention/consent controls, bias/validation study, live CI E2E for real models.
+- TLS/WSS, tenant isolation, scoped recruiter credentials, shared quotas/audit log,
+  consent/retention controls, bias/validation study, live CI E2E for real models.
+- Live Twilio voice/Media Streams, WhatsApp, Google Calendar, and Microsoft Graph
+  verification with approved accounts and public HTTPS/WSS endpoints.
+- Teams transcript evaluation and autonomous live Teams participation.
 - Live managed-call provider verification (workflow is contract-tested only).
 
 **Rejected / deferred:**
 - Production hiring without compliance review.
 - Wholesale rewrite of working Python domain logic into Rust.
+- Claiming live multi-channel or Teams/WhatsApp capabilities without provider
+  validation.
 
 Full shipped/blocked/rejected detail: [`docs/internal/QUEUE_STATUS.md`](docs/internal/QUEUE_STATUS.md).
 
@@ -696,7 +556,8 @@ Full shipped/blocked/rejected detail: [`docs/internal/QUEUE_STATUS.md`](docs/int
 See [CONTRIBUTING.md](CONTRIBUTING.md) for how to set up and test changes, and
 [SECURITY.md](SECURITY.md) for the current security gaps. CI runs `cargo fmt`/`clippy`/`test`
 for the gateway, `ruff` + `pytest` for `ai-service`, and `tsc` + `npm run build` for the
-candidate client. Python tests use mock providers and require no models or network.
+candidate client. A dependency-audit job runs `cargo audit`, `npm audit`, and
+`pip-audit`. Python tests use mock providers and require no models or network.
 
 ## Related projects
 
