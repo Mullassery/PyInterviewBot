@@ -8,9 +8,10 @@
 
 ## What it is
 
-PyInterviewBot is a voice-first AI interview platform built from three services: a Rust
-WebSocket audio gateway, a Python ASR/LLM/TTS orchestration and evidence engine, and a
-TypeScript candidate/recruiter client. The candidate hears a question, answers by voice, and
+PyInterviewBot is a voice-first AI interview platform built from a Rust
+WebSocket/voice gateway, a shared Rust channel/interview domain, a Python
+ASR/LLM/TTS orchestration and evidence engine, and a TypeScript
+candidate/recruiter client. The candidate hears a question, answers by voice, and
 never sees a transcript, a score, or anything about how they're being evaluated — they
 experience a conversation. Behind that, the system silently transcribes, extracts evidence,
 updates a competency graph, and decides how to adaptively probe deeper.
@@ -54,9 +55,31 @@ This platform:                Listen → Understand → Probe → Verify → Ass
   operators who intentionally use a managed call provider. It is never required for the
   local path and does not own interview state. See
   [`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MATRIX.md).
+- **Channel-neutral interview domain.** A Rust `interview-domain` crate plus durable
+  SQLite channel-session mapping and idempotent provider-event handling. Adapters can
+  share one interview engine and report model instead of owning interview state.
 - **End-to-end integration test** (`ai-service/scripts/e2e_ws_test.py`) that drives the real
   gateway protocol with real synthesized audio — real VAD, barge-in, transcription, agent
   turns, and evidence extraction, nothing mocked.
+
+## Multi-channel status
+
+| Channel capability | Status |
+|---|---|
+| Existing web voice interview | Implemented and tested |
+| Native Rust speech studio / local neural TTS+ASR | Implemented and tested with operator-supplied models |
+| Channel-neutral session/message API | Implemented and tested |
+| Twilio voice (inbound/outbound, gather/transcribe, Media Streams) | **Not implemented** |
+| WhatsApp text interviews | **Not implemented** |
+| WhatsApp voice-note interviews | **Not implemented** |
+| WhatsApp live voice calls | **Blocked / unverified** |
+| Microsoft Teams scheduling | **Not implemented** |
+| Microsoft Teams transcript evaluation | **Not implemented** |
+| Teams autonomous live participation | **Blocked / unverified** |
+
+Provider adapters require approved accounts, tenant permissions, public HTTPS
+webhooks, and live validation. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the
+dependency-ordered plan and exact blockers.
 
 ## Who it's for
 
@@ -73,8 +96,9 @@ This platform:                Listen → Understand → Probe → Verify → Ass
   real local voice path. See [`docs/internal/ROADMAP_HONEST.md`](docs/internal/ROADMAP_HONEST.md)
   and [`docs/internal/BASELINE_AUDIT.md`](docs/internal/BASELINE_AUDIT.md) for what is
   verified versus still open.
-- **Not remotely deployable as-is.** Auth exists, but there is no TLS, no per-session
-  authorization, and no rate limiting. See [`SECURITY.md`](SECURITY.md) and
+- **Not remotely deployable as-is.** Auth exists, but there is no TLS, tenant isolation,
+  scoped recruiter credentials, or distributed quota enforcement. Rate limiting and
+  per-session turn tokens are partial safeguards. See [`SECURITY.md`](SECURITY.md) and
   [`docs/SECURITY_MODEL.md`](docs/SECURITY_MODEL.md).
 - **Not a general-purpose Python library.** `ai-service` is published on PyPI as
   [`pyinterviewbot-ai`](https://pypi.org/project/pyinterviewbot-ai/), but installing it
@@ -85,11 +109,12 @@ This platform:                Listen → Understand → Probe → Verify → Ass
 
 ## Project status
 
-**Working MVP / early prototype.** Version 0.1.1 plus the 2026-10-25 provider/report
-hardening. The default local path, deterministic mock path, and Rust voice runtime are
-tested; the optional managed-call provider path remains unverified. See
-[`docs/internal/ROADMAP_HONEST.md`](docs/internal/ROADMAP_HONEST.md) and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
-Changes are tracked in [CHANGELOG.md](CHANGELOG.md).
+**Working MVP / early prototype.** Version 0.1.1 plus the 2026-10-25 hardening and
+Phase 7 channel-domain work. The local web voice path, deterministic mock path, native
+Rust runtime, recording controls, and channel-neutral API are tested. Twilio, WhatsApp,
+and Teams adapters are not implemented; the optional managed-call provider path remains
+unverified. See [`docs/ROADMAP.md`](docs/ROADMAP.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md),
+and [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Installation
 
@@ -273,6 +298,49 @@ time, and de-duplicated before normalization. Transport retries use
 `/native/voice/engines` lists registered speech engines, default selection, and
 health.
 
+## Channel-neutral interview API
+
+Channel adapters share one interview engine and one durable session mapping:
+
+```bash
+# Create or resume an interview for an external channel identity
+curl -X POST http://127.0.0.1:8000/channels/twilio_voice/sessions \
+  -H "X-API-Key: change-me" -H "Content-Type: application/json" \
+  -d '{"external_id":"+15551234567","template_id":"backend_engineer"}'
+
+# Submit one idempotent candidate message; duplicate event IDs return the same result
+curl -X POST http://127.0.0.1:8000/channels/twilio_voice/messages \
+  -H "X-API-Key: change-me" -H "Content-Type: application/json" \
+  -d '{"external_id":"+15551234567","event_id":"CA123:turn-1","text":"I owned the design."}'
+```
+
+Supported channel identifiers: `web`, `twilio_voice`, `whatsapp_text`,
+`whatsapp_voice_note`, `teams`. The shared domain and durable mapping are
+implemented; provider webhook adapters for Twilio, WhatsApp, and Teams are still
+pending. See [`docs/ROADMAP.md`](docs/ROADMAP.md).
+
+## Channel-neutral interview API
+
+Channel adapters create or resume an interview for an external identity and submit
+idempotent messages to the existing interview engine:
+
+```bash
+# Create or resume a session (channel: web, twilio_voice, whatsapp_text,
+# whatsapp_voice_note, teams)
+curl -X POST http://127.0.0.1:8000/channels/twilio_voice/sessions \
+  -H "X-API-Key: change-me" -H "Content-Type: application/json" \
+  -d '{"external_id":"+15551234567","template_id":"backend_engineer"}'
+
+# Submit one candidate message. Duplicate event IDs return the same result.
+curl -X POST http://127.0.0.1:8000/channels/twilio_voice/messages \
+  -H "X-API-Key: change-me" -H "Content-Type: application/json" \
+  -d '{"external_id":"+15551234567","event_id":"CA123:turn-1","text":"I owned the design."}'
+```
+
+The channel domain and durable mapping are implemented. Provider-specific webhook
+parsing, Twilio TwiML/Media Streams, WhatsApp media handling, and Teams Graph
+integration are pending. See [`docs/ROADMAP.md`](docs/ROADMAP.md).
+
 ## Templates, reports, and human review
 
 ```bash
@@ -341,7 +409,7 @@ docs/
 
 ## Documentation
 
-- [docs/ROADMAP.md](docs/ROADMAP.md) — completed and pending phases with verification status.
+- [docs/ROADMAP.md](docs/ROADMAP.md) — completed/pending phases, channel matrix, and blockers.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — layered design, what's real vs. simplified,
   and the two timing bugs found and fixed while building the integration test.
 - [docs/internal/ROADMAP_HONEST.md](docs/internal/ROADMAP_HONEST.md) — exactly what's tested, built-but-unverified, and

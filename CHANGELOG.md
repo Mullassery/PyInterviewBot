@@ -35,6 +35,17 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
 - `/asr/transcribe` payload cap (`PYINTERVIEWBOT_MAX_AUDIO_BYTES`, 413 on
   overflow), plus `/providers` and `/templates` discovery endpoints.
 
+### Added (Phase 7 channel domain)
+
+- Rust `interview-domain` crate: channel/event/state contracts, illegal
+  transition rejection, bounded deduplication, and cross-channel tests.
+- Durable SQLite `channel_sessions` and `channel_events` tables with deletion
+  cleanup.
+- Authenticated channel-neutral API for session mapping and idempotent messages
+  (`POST /channels/{channel}/sessions`, `POST /channels/{channel}/messages`).
+- Cross-channel contract test proving equivalent answers produce the same report
+  structure.
+
 ### Added (Phase 4 neural engine)
 
 - Optional real local neural engine behind the `local-neural` feature:

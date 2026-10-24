@@ -5,6 +5,7 @@ deployment; path configurable via PYINTERVIEWBOT_DB_PATH.
 
 from __future__ import annotations
 
+import json
 import os
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -53,6 +54,23 @@ CREATE TABLE IF NOT EXISTS evidence (
     note TEXT NOT NULL,
     turn_number INTEGER NOT NULL,
     created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS channel_sessions (
+    channel TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    session_id TEXT NOT NULL REFERENCES sessions(id),
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (channel, external_id)
+);
+
+CREATE TABLE IF NOT EXISTS channel_events (
+    channel TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    session_id TEXT NOT NULL REFERENCES sessions(id),
+    response_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (channel, event_id)
 );
 
 CREATE TABLE IF NOT EXISTS review_corrections (
@@ -162,6 +180,12 @@ async def mark_complete(session_id: UUID) -> None:
 async def delete_session(session_id: UUID) -> bool:
     """Delete a session and all transcript/evidence rows (retention request)."""
     async with connect() as db:
+        await db.execute(
+            "DELETE FROM channel_events WHERE session_id = ?", (str(session_id),)
+        )
+        await db.execute(
+            "DELETE FROM channel_sessions WHERE session_id = ?", (str(session_id),)
+        )
         await db.execute(
             "DELETE FROM review_corrections WHERE session_id = ?", (str(session_id),)
         )
@@ -282,3 +306,57 @@ async def get_reviews(session_id: UUID) -> list[ReviewCorrection]:
             )
             for r in rows
         ]
+
+
+async def get_channel_session(channel: str, external_id: str) -> str | None:
+    async with connect() as db:
+        cursor = await db.execute(
+            "SELECT session_id FROM channel_sessions WHERE channel = ? AND external_id = ?",
+            (channel, external_id),
+        )
+        row = await cursor.fetchone()
+        return row[0] if row else None
+
+
+async def bind_channel_session(
+    channel: str, external_id: str, session_id: UUID
+) -> bool:
+    async with connect() as db:
+        cursor = await db.execute(
+            "INSERT OR IGNORE INTO channel_sessions "
+            "(channel, external_id, session_id, created_at) VALUES (?, ?, ?, ?)",
+            (channel, external_id, str(session_id), _now()),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def get_channel_event(channel: str, event_id: str) -> dict | None:
+    async with connect() as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT session_id, response_json FROM channel_events "
+            "WHERE channel = ? AND event_id = ?",
+            (channel, event_id),
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        return {
+            "session_id": row["session_id"],
+            "response": json.loads(row["response_json"]),
+        }
+
+
+async def record_channel_event(
+    channel: str, event_id: str, session_id: UUID, response: dict
+) -> bool:
+    async with connect() as db:
+        cursor = await db.execute(
+            "INSERT OR IGNORE INTO channel_events "
+            "(channel, event_id, session_id, response_json, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (channel, event_id, str(session_id), json.dumps(response), _now()),
+        )
+        await db.commit()
+        return cursor.rowcount > 0

@@ -10,6 +10,13 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 EvidenceStatus = Literal["confirmed", "weak", "contradicted", "not_addressed"]
+ChannelName = Literal[
+    "web",
+    "twilio_voice",
+    "whatsapp_text",
+    "whatsapp_voice_note",
+    "teams",
+]
 NextAction = Literal["probe", "clarify", "challenge", "move_on", "simulate", "conclude"]
 
 
@@ -145,3 +152,32 @@ class SessionReport(BaseModel):
     human_review_required: bool = True
     decision_support_only: bool = True
     limitations: list[str] = Field(default_factory=list)
+
+
+class ChannelSessionRequest(BaseModel):
+    external_id: str = Field(min_length=1, max_length=256)
+    template_id: str | None = None
+
+
+class ChannelSessionResponse(BaseModel):
+    channel: ChannelName
+    external_id: str
+    session_id: UUID
+    template_id: str
+    question_text: str
+
+
+class ChannelMessageRequest(BaseModel):
+    external_id: str = Field(min_length=1, max_length=256)
+    event_id: str = Field(min_length=1, max_length=256)
+    text: str = Field(min_length=1, max_length=20_000)
+    template_id: str | None = None
+
+
+class ChannelMessageResponse(BaseModel):
+    channel: ChannelName
+    external_id: str
+    session_id: UUID
+    ai_text: str
+    is_complete: bool
+    duplicate: bool = False

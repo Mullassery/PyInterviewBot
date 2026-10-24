@@ -1,197 +1,379 @@
-# PyInterviewBot Phase Roadmap
+# PyInterviewBot Execution Roadmap
 
-Last updated: 2026-10-25
+Last revised: 2026-10-25  
+Repository snapshot: `b9a6004` (working tree clean after restoring the verified state)
 
-This is the execution roadmap for the productionization work. It records what is
-actually implemented and verified, what remains, and the evidence for each
-status. It complements [`docs/internal/BASELINE_AUDIT.md`](internal/BASELINE_AUDIT.md),
-[`docs/ARCHITECTURE.md`](ARCHITECTURE.md), and the ADRs.
+This document records completed work, pending work, external blockers, and the
+dependency order for the multi-channel platform. It is evidence-based: a feature
+is not marked complete because it is described in a prompt or README.
 
-## Status legend
+Companion documents:
+- [`docs/internal/BASELINE_AUDIT.md`](internal/BASELINE_AUDIT.md)
+- [`docs/ARCHITECTURE.md`](ARCHITECTURE.md)
+- [`docs/SECURITY_MODEL.md`](SECURITY_MODEL.md)
+- [`docs/CAPABILITY_MATRIX.md`](CAPABILITY_MATRIX.md)
+- [`docs/adr/`](adr/)
 
-- **Complete** — implemented and covered by passing tests or a live smoke test.
-- **Partial** — a working slice exists; explicit gaps are listed.
+## Status language
+
+- **Implemented and tested** — code exists and automated tests or a documented smoke test pass.
+- **Implemented, not live-verified** — code exists and is mock/contract-tested; no live provider validation.
+- **Partial** — a working slice exists, with explicit gaps.
 - **Pending** — not implemented.
+- **Blocked** — requires external account approval, credentials, tenant permissions, or unsupported provider capability.
 - **Deferred** — intentionally not pursued without new evidence/authorization.
 
-## Current quality gates
+## Current verified baseline
 
 | Gate | Result |
 |---|---|
 | `cargo fmt --check` | pass |
 | `cargo clippy --all-targets -- -D warnings` | pass |
-| `cargo test` | **53 passed** (25 gateway + 28 runtime) |
+| `cargo clippy --all-targets --features local-neural -- -D warnings` | pass |
+| `cargo test` | **62 passed** (25 gateway + 32 runtime + 5 domain) |
+| `cargo test -p voice-runtime --features local-neural` | **63 passed** |
 | `uv run ruff check .` | pass |
-| `uv run --group dev python -m pytest -q` | **25 passed** |
+| `uv run --group dev python -m pytest -q` | **30 passed** |
 | `npx tsc --noEmit` | pass |
 | `npm run build` | pass |
-| Live native gateway smoke | sessions, speech, transcription, recording WAV export, clear, delete, auth rejection verified |
+| Live native gateway smoke | health, sessions, speech, chunked speech, transcription, recording export/clear/delete, auth rejection |
+| Live local neural smoke | real TTS→ASR round-trip produced `"Hello from the native neural engine."` |
 
 ---
 
-## Phase 0 — Baseline audit
+# Completed phases
 
-**Status: Complete**
+## Phase 0 — Repository audit
 
-- Audited source, tests, CI, dependencies, docs, Git history, and upstream
-  references before changing files.
-- Recorded actual implemented functionality, stubs, regressions, and risks.
-- Established baseline test results.
-- Saved in [`docs/internal/BASELINE_AUDIT.md`](internal/BASELINE_AUDIT.md).
+**Status: Implemented and tested**
 
-## Phase 1 — Design and contracts
+- Inspected source, tests, CI, manifests, docs, and Git state before modifying.
+- Recorded real capabilities, defects, and baseline test results.
+- Artifact: [`docs/internal/BASELINE_AUDIT.md`](internal/BASELINE_AUDIT.md).
 
-**Status: Complete**
+## Phase 1 — Core design and contracts
 
-- Provider-neutral speech/language contracts and explicit failure semantics.
+**Status: Implemented and tested**
+
+- Provider-neutral speech/language contracts and normalized voice events.
+- Session state machines with invalid-transition rejection.
 - Versioned interview templates and evidence-node definitions.
-- Session state machines for transport and native voice runtime.
-- Normalized event contracts with per-session sequence numbers.
-- Evidence-linked report and human-review contract.
-- Security threat model, capability/licence matrix, and licence inventory.
-- Decision records:
-  - [`ADR-0002`](adr/0002-provider-neutral-voice-contracts.md)
-  - [`ADR-0003`](adr/0003-evidence-linked-reports.md)
-  - [`ADR-0004`](adr/0004-rust-transport-python-domain.md)
+- Evidence-linked reports, uncertainty, and human-review corrections.
+- Threat model, capability/licence matrix, and ADRs.
 
-## Phase 2 — Minimal vertical slice
+## Phase 2 — Shared interview vertical slice
 
-**Status: Complete**
+**Status: Implemented and tested**
 
-- Deterministic mock ASR/TTS/LLM providers with no network or model dependency.
-- Complete interview flow: create session → opening question → candidate turns →
-  evidence updates → completion → structured report → human review → deletion.
-- CI runs the mock-provider flow offline.
-- Tests: `ai-service/tests/test_interview_flow.py`,
-  `test_providers.py`, `test_rate_limit.py`.
+- Deterministic mock ASR/TTS/LLM path with no model/network dependency.
+- Interview lifecycle: create → question → candidate turns → evidence updates →
+  completion → report → human review → deletion.
+- Offline CI coverage for the mock path.
 
-## Phase 3 — Rust voice runtime
+## Phase 3 — Rust voice runtime and gateway integration
 
-**Status: Complete**
+**Status: Implemented and tested**
 
-- New `voice-runtime/` workspace crate:
-  - session lifecycle and pure state transitions,
-  - sequenced normalized events,
-  - bounded audio/text and session capacity,
-  - interruption/cancellation, idle timeout sweeping,
-  - provider error normalization and event bus,
-  - deterministic mock provider.
-- Gateway integration:
-  - native studio routes (`/native/voice/*`),
-  - optional managed-call workflow routes (`/native/managed-call/*`),
-  - shared gateway auth, body limits, and readiness checks.
-- Existing WebSocket interview flow and Python AI/evaluation service retained.
-- Tests: 28 runtime tests + 25 gateway tests.
+- `voice-runtime/`: session lifecycle, event sequencing, bounded audio/text,
+  cancellation, idle sweeping, capacity limits, mock provider.
+- Gateway native routes for studio speech, transcription, recording, engine
+  discovery, and the optional managed-call workflow.
+- Existing WebSocket interview flow and Python AI/evaluation service preserved.
 
 ## Phase 4 — Native speech workflows
 
 **Status: Partial**
 
-Implemented natively in Rust:
+Implemented and tested:
 
-- Speech-studio core: PCM16/WAV codecs, linear resampling, RMS, silence trim,
-  peak normalization, concatenation, chunking.
-- Optional real local neural engine: VITS/Piper TTS and Whisper ASR through
-  sherpa-onnx, operator-supplied weights, CPU default. Verified with a real
-  TTS→ASR round-trip and gateway TTS/transcription endpoint smoke test.
-- Session speech generation, transcription, interruption, explicit in-memory
-  recording/export/deletion.
-- Chunked TTS delivery over the native HTTP endpoint and an engine catalogue
-  with capability/health discovery.
-- Replaceable `SpeechEngine` contract with a deterministic mock engine.
-- Managed-call workflow: server-side call create/get/end with exponential
-  backoff for retryable failures, Bearer/HMAC webhook verification, bounded
-  idempotent ingestion, normalized provider events.
-- No external desktop-application adapter and no vendored upstream source.
+- Native speech-studio core: PCM16/WAV, resampling, RMS, silence trim, peak
+  normalization, concatenation, chunking.
+- Optional real local neural engine (`local-neural` feature): VITS/Piper TTS and
+  Whisper ASR via sherpa-onnx, operator-supplied weights, CPU default.
+- Chunked TTS HTTP delivery and engine catalogue/health discovery.
+- Explicit in-memory recording/export/deletion with size bounds.
+- Managed-call workflow: call create/get/end, exponential-backoff retries,
+  Bearer/HMAC webhook verification, bounded idempotent event ingestion.
 
 Pending:
 
-- True incremental neural synthesis (current chunking happens after synthesis).
-- Model warm-up/load-time metrics and optional accelerators (GPU/CoreML).
-- Model catalogue/capability discovery beyond static mock capabilities.
-- Real engine streaming (current chunks are produced after full synthesis; the
-  engine contract is ready for true incremental synthesis).
-- Live managed-call account validation and reconnect behavior against the real
-  provider.
+1. True incremental neural synthesis. Current chunks are produced after full
+   synthesis; the engine contract is ready for a streaming implementation.
+2. Model warm-up/load-time metrics and documented accelerator (GPU/CoreML)
+   configuration.
+3. Live managed-call provider validation and reconnect behavior.
+4. Partial-transcript transport and cross-provider streaming contract tests.
 
-## Phase 5 — Production hardening
+## Phase 5 — Production hardening (existing web/native path)
 
 **Status: Partial**
 
-Implemented:
+Implemented and tested:
 
 - API-key auth, loopback fail-closed, gateway→ai-service key forwarding.
-- Per-session turn tokens with SHA-256-at-rest storage and optional enforcement.
-- In-process sliding-window rate limiting per API key/IP.
-- Audio size limits, WebSocket frame/message limits, body limits.
-- `/health` liveness and `/ready` dependency readiness.
-- Session deletion and explicit native recording deletion.
-- Evidence-linked reports, uncertainty, and human-review corrections.
-- Structured logs via `tracing` and JSON error responses.
+- Per-session turn tokens (hash at rest) with optional enforcement.
+- In-process rate limiting, audio/body/frame limits, readiness checks.
+- Session/recording deletion, structured logs, stable JSON errors.
 
 Pending:
 
-- TLS/WSS termination and deployment hardening guidance.
-- Shared/distributed rate limits and quotas across workers.
-- Tenant isolation and scoped admin/recruiter credentials.
-- Audit log for administrative actions (delete, review, export).
-- Consent/retention policy UI and disk-backed audio retention controls.
-- Encryption at rest and key rotation.
-- Load/concurrency benchmarks, latency SLOs, resource limits.
-- Failure injection and recovery tests for provider disconnects/timeouts.
-- Dependency scanning (`pip-audit` or equivalent) in CI.
+1. TLS/WSS termination and deployment reference.
+2. Shared/distributed rate limits and quotas.
+3. Tenant isolation and scoped recruiter/admin credentials.
+4. Audit log for destructive/review/export actions.
+5. Consent/retention policy UI and disk-backed audio controls.
+6. Encryption at rest, key rotation, dependency vulnerability scanning.
+7. Load/latency/resource measurements and failure injection.
 
 ## Phase 6 — Documentation and release
 
 **Status: Partial**
 
-Implemented:
+Implemented: architecture, security, capability/licence, ADRs, configuration,
+offline CI tests.
 
-- Updated architecture, security, capability, licence, and baseline docs.
-- Configuration examples for providers, auth, rate limits, native endpoints.
-- ADRs for the major decisions.
-- CI runs gateway, Python, and client gates; Python tests are offline.
-
-Pending:
-
-- Version bump and release notes after hardening is complete.
-- Live end-to-end CI (or documented self-hosted runner) with real models.
-- Deployment reference (reverse proxy/TLS, process supervision, backups).
-- Final supported-feature matrix sign-off and model-licence review.
-- Release artifact/package validation.
+Pending: version/release process, live-model CI runner, deployment packaging,
+final licence/model review, release artifact validation.
 
 ---
 
-## Prioritized backlog
+# Pending multi-channel phases
 
-### P0 — before any remote deployment
+These phases extend the existing platform. No Twilio, WhatsApp, or Teams adapter
+code exists in the repository today; only provider documentation has been
+consulted. Do not describe these channels as implemented until code and tests
+exist.
 
-1. TLS/WSS + trusted reverse proxy configuration.
-2. Scoped credentials and tenant/session isolation for recruiter endpoints.
-3. Shared rate limits/quotas; gateway-level throttling.
-4. Consent and retention policy, including native recording endpoint controls.
-5. Audit logging for destructive and reviewer actions.
-6. Legal/privacy/bias review for the target hiring jurisdiction.
+## Phase 7 — Shared channel-independent interview domain
 
-### P1 — production readiness
+**Status: Implemented and tested**  
+**Provider adapters: Pending (start with Phase 8)**
 
-1. Neural model warm-up, accelerator configuration, and load-time SLOs.
-2. True incremental TTS and partial transcript transport validation.
-3. Provider disconnect/reconnect and duplicate-event tests.
-4. Load, latency, and resource measurements; publish results.
-5. Dependency vulnerability scanning in CI.
+Implemented:
 
-### P2 — product depth
+- Rust `interview-domain` crate: channel enum, versioned event envelope,
+  normalized inbound/outbound events, channel-session state machine with illegal
+  transition rejection, bounded idempotency cache, and cross-channel contract
+  tests.
+- Durable SQLite `channel_sessions` mapping and `channel_events` idempotency
+  records, including deletion cleanup.
+- Authenticated channel-neutral API:
+  - `POST /channels/{channel}/sessions`
+  - `POST /channels/{channel}/messages`
+- Idempotent message processing: duplicate provider event IDs return the stored
+  logical response without adding another candidate turn.
+- Cross-channel test: the same answers through `twilio_voice` and
+  `whatsapp_text` produce the same report node/status structure.
+- Supported channel identifiers: `web`, `twilio_voice`, `whatsapp_text`,
+  `whatsapp_voice_note`, `teams` (adapters not yet implemented).
 
-1. Additional interview templates and rubric configuration.
-2. Report export (JSON/CSV/PDF) and reviewer workflow UI.
-3. Multi-language support and voice configuration.
-4. Recruiter-side playback/export for explicitly recorded sessions.
-5. Calibration/validation study before any score-based recommendation.
+Provider wire formats remain outside the domain. No Twilio, WhatsApp, or Teams
+adapter code exists yet.
 
-## Deferred / rejected
+## Phase 8 — Twilio voice
 
-- Production hiring recommendations without compliance review.
-- Wholesale rewrite of working Python domain logic into Rust.
-- Vendor-specific protocol compatibility claims.
-- Model training/reimplementation without a documented need and licence review.
+**Status: Pending**  
+**Live status: Blocked by Twilio account/credentials and a public HTTPS callback URL**
+
+Verified provider starting points:
+- https://www.twilio.com/docs/voice/api
+- https://www.twilio.com/docs/usage/security#validating-requests
+- https://www.twilio.com/docs/voice/twiml
+
+Deliverables:
+
+1. Outbound call initiation with session correlation and idempotency.
+2. Inbound call webhook handling and interview-session lookup/creation.
+3. TwiML gather/transcribe mode using the existing interview engine.
+4. Optional Media Streams adapter for real-time audio, with backpressure,
+   interruption, disconnect, and timeout handling.
+5. Twilio request-signature validation using the exact public URL and sorted
+   parameters.
+6. Replay/duplicate callback protection and durable call lifecycle metadata.
+7. Tests for invalid signatures, duplicate callbacks, failed calls, timeouts,
+   and session termination.
+
+Definition of done: deterministic adapter tests pass; live call test is either
+performed with an approved account or explicitly reported NOT RUN.
+
+## Phase 9 — WhatsApp
+
+**Status: Pending**  
+**Live status: Blocked by WhatsApp Business approval/sender configuration**
+
+Verified provider starting points:
+- https://www.twilio.com/docs/whatsapp
+- https://www.twilio.com/docs/whatsapp/api
+- https://www.twilio.com/docs/messaging/guides/webhook-request
+
+### 9A. Text messaging
+
+Deliverables:
+
+1. Webhook signature validation, challenge handling where applicable, and
+   bounded payload parsing.
+2. Candidate invitation, consent/opt-out, session creation, and deduplication.
+3. Text question delivery, adaptive follow-up, completion, and report link.
+4. Message status callbacks and safe retry handling.
+5. Template/messaging-window constraints documented and enforced where possible.
+
+### 9B. Voice-note interviews
+
+Deliverables:
+
+1. Inbound media event parsing and authorization to the correct session.
+2. SSRF-safe media download restricted to expected provider hosts and HTTPS.
+3. Audio size/type/duration validation, safe decoding/transcoding path, and
+   transcription through the shared speech abstraction.
+4. Async turn processing with duplicate/expired-media handling.
+5. Same canonical report as text/voice channels.
+
+### 9C. Live WhatsApp calling
+
+**Status: Pending capability verification**  
+Implement only after confirming call direction, onboarding, regional support,
+user consent, real-time media access, and webhook behavior in current official
+documentation. If real-time media is unavailable through the selected provider,
+mark the feature **Blocked** and do not simulate it with text messages.
+
+## Phase 10 — Microsoft Teams
+
+**Status: Pending**  
+**Live status: Blocked by Microsoft tenant/app registration, admin consent, and meeting policy**
+
+Verified provider starting points:
+- https://learn.microsoft.com/en-us/graph/api/resources/communications-api-overview
+- https://learn.microsoft.com/en-us/graph/api/resources/onlinemeeting
+- https://learn.microsoft.com/en-us/microsoftteams/platform/bots/calls-and-meetings/calls-meetings-bots-overview
+
+### 10A. Scheduling and coordination
+
+Deliverables: Graph-authenticated meeting creation, URL/session association,
+reschedule/cancel, least-privilege permission documentation, and tenant setup
+guide.
+
+### 10B. Transcript-based evaluation
+
+Deliverables: authorized transcript discovery/retrieval, participant-to-role
+mapping where reliable, normalized segments with speaker/timing, evaluation
+through the shared engine, and structured report. Handle unavailable, delayed,
+incomplete, or revoked transcripts.
+
+### 10C. Autonomous live participation
+
+**Status: Blocked / unverified**
+
+Requires supported Teams calling/media bot architecture, app registration,
+tenant permissions, media infrastructure, recording/transcription policy
+compliance, and live validation. A calendar event or meeting URL is not
+sufficient. Do not implement a text-only bot and call it a live interviewer.
+
+## Phase 11 — Multi-channel security and operations
+
+**Status: Pending**
+
+1. Webhook signature validation and replay protection for every provider.
+2. SSRF-safe media fetching and safe file processing.
+3. Per-channel credential isolation and secret-management guidance.
+4. Cross-tenant/candidate isolation and scoped access tokens.
+5. Durable provider-event deduplication and audit events.
+6. Consent, recording, retention, opt-out, and deletion workflows per channel.
+7. Correlation IDs, latency/error metrics, queue depth, and provider failure
+   counters without PII in labels.
+8. Public HTTPS/WSS deployment, rate limits, and abuse controls.
+
+## Phase 12 — Packaging, CI, and live validation
+
+**Status: Pending**
+
+1. CI for Twilio/WhatsApp/Teams adapter contract tests (no production secrets).
+2. Opt-in live-provider test harness with isolated credentials and fixtures.
+3. Docker/deployment documentation for public webhook ingress and media.
+4. Packaging validation and supported-environment matrix.
+5. Final capability matrix and release notes.
+
+---
+
+# Channel capability matrix (current)
+
+| Capability | Status | Evidence / blocker |
+|---|---|---|
+| Existing web voice interview | Implemented and tested | Rust gateway + Python AI + client tests/smoke |
+| Native Rust speech studio | Implemented and tested | Runtime tests + live engine smoke |
+| Optional local neural TTS/ASR | Implemented and tested | Real TTS→ASR round-trip; models not bundled |
+| Native chunked TTS | Implemented and tested | Gateway stream smoke; not truly incremental yet |
+| Managed-call workflow | Implemented, not live-verified | Mock HTTP transport tests only |
+| Shared channel-independent domain | Implemented and tested | Rust contracts + SQLite mapping/idempotency + cross-channel tests |
+| Channel-neutral session/message API | Implemented and tested | `/channels/{channel}/sessions` and `/messages` |
+| Twilio outbound/inbound voice | Pending | No adapter; Twilio account/HTTPS callback needed |
+| Twilio real-time media | Pending | No media-stream adapter |
+| WhatsApp text interviews | Pending | No adapter; WhatsApp Business approval needed |
+| WhatsApp voice notes | Pending | No media pipeline; approval needed |
+| WhatsApp live voice | Blocked / unverified | Provider capability and approval must be confirmed |
+| Teams scheduling | Pending | No Graph client; tenant/admin consent needed |
+| Teams transcript evaluation | Pending | No Graph/transcript client; meeting policy needed |
+| Teams autonomous AI participation | Blocked / unverified | Requires supported calling/media bot architecture |
+
+---
+
+# Dependency-ordered pending steps
+
+## P0 — correctness, security, and shared contracts
+
+1. **Provider webhook signature/replay framework** with Twilio implementation.
+2. **SSRF-safe media-fetch policy** and safe audio validation.
+3. **Twilio gather/transcribe adapter** (Phase 8).
+
+## P1 — first real channel slices
+
+6. **Twilio voice gather/transcribe adapter** with signature tests and mock call flow.
+7. **WhatsApp text adapter** with opt-out, deduplication, and message status.
+8. **WhatsApp voice-note adapter** with safe media download and transcription.
+9. **Teams scheduling client** behind a feature flag, with tenant setup docs.
+
+## P2 — advanced / blocked capabilities
+
+10. Twilio Media Streams real-time loop.
+11. Teams transcript retrieval/evaluation.
+12. WhatsApp live calling after capability verification.
+13. Teams autonomous live participation after platform/permission verification.
+
+## P3 — production hardening
+
+14. TLS/WSS, tenant isolation, shared quotas, audit log.
+15. Consent/retention UI and disk-backed media policy.
+16. Load/latency benchmarks, failure injection, vulnerability scanning.
+17. Release packaging and live-provider validation.
+
+---
+
+# External blockers and required inputs
+
+| Blocker | Needed for |
+|---|---|
+| Twilio Account SID/Auth Token and approved sender/caller | Live Twilio voice/WhatsApp tests |
+| Public HTTPS webhook URL (tunnel or deployed environment) | Live provider callbacks |
+| WhatsApp Business account, sender, templates, opt-in policy | WhatsApp text/voice-note/live |
+| Verified WhatsApp calling/media capability for the selected account/region | Live WhatsApp voice |
+| Microsoft Entra app registration, tenant admin consent, Graph permissions | Teams scheduling/transcripts |
+| Teams meeting/recording/transcript policy | Teams transcript evaluation |
+| Supported Teams calling/media bot deployment | Autonomous live Teams participation |
+| Legal/privacy review and consent/retention policy | Any production hiring deployment |
+
+No live-provider test has been run. All current provider statements are
+documentation-based and must be re-verified against the operating account.
+
+---
+
+# Immediate next milestone
+
+Implement **Phase 8 — Twilio voice**:
+
+1. Twilio request-signature verifier with signed fixtures.
+2. Inbound/outbound call webhook normalization into `interview-domain`.
+3. Session correlation through the channel-neutral API.
+4. TwiML gather/transcribe flow and duplicate-callback tests.
+5. Documentation of live-account prerequisites; live tests remain **NOT RUN**
+   until an approved Twilio account and public HTTPS callback URL are available.
+
+Do not start WhatsApp or Teams provider code before the Twilio adapter is stable.

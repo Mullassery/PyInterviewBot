@@ -9,9 +9,13 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from . import agent, db, documents, providers, rate_limit, report, templates
+from . import agent, channels, db, documents, providers, rate_limit, report, templates
 from .auth import hash_session_token, require_auth
 from .models import (
+    ChannelMessageRequest,
+    ChannelMessageResponse,
+    ChannelSessionRequest,
+    ChannelSessionResponse,
     ReviewRequest,
     SessionListItem,
     SessionReport,
@@ -153,6 +157,36 @@ async def turn(
         return await agent.take_turn(session_id, req.transcript)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post(
+    "/channels/{channel}/sessions",
+    response_model=ChannelSessionResponse,
+    dependencies=[Depends(require_auth)],
+)
+async def channel_session(channel: str, req: ChannelSessionRequest) -> ChannelSessionResponse:
+    try:
+        return await channels.start_or_resume(channel, req.external_id, req.template_id)
+    except channels.ChannelError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@app.post(
+    "/channels/{channel}/messages",
+    response_model=ChannelMessageResponse,
+    dependencies=[Depends(require_auth)],
+)
+async def channel_message(channel: str, req: ChannelMessageRequest) -> ChannelMessageResponse:
+    try:
+        return await channels.submit_message(
+            channel,
+            req.external_id,
+            req.event_id,
+            req.text,
+            req.template_id,
+        )
+    except channels.ChannelError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
 @app.get(

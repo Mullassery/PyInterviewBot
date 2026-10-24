@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["gateway", "voice-runtime"]
+members = ["gateway", "voice-runtime", "interview-domain"]
 
 [workspace.package]
 version = "0.1.0"
