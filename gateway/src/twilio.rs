@@ -10,13 +10,17 @@ use std::time::Duration;
 
 use axum::{
     body::Bytes,
-    extract::{DefaultBodyLimit, Query, State},
+    extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        DefaultBodyLimit, Query, State,
+    },
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::post,
+    routing::{get, post},
     Json, Router,
 };
 use base64::{engine::general_purpose::STANDARD, Engine};
+use futures_util::{SinkExt, StreamExt};
 use hmac::{Hmac, Mac};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -34,6 +38,7 @@ pub struct TwilioConfig {
     pub account_sid: Option<String>,
     pub from_number: Option<String>,
     pub public_base_url: String,
+    pub media_ws_base_url: String,
     pub api_base_url: String,
     pub http: reqwest::Client,
 }
@@ -49,6 +54,18 @@ impl TwilioConfig {
         if auth_token.is_empty() || public_base_url.is_empty() {
             return None;
         }
+        let media_ws_base_url = std::env::var("TWILIO_MEDIA_WS_BASE_URL")
+            .unwrap_or_else(|_| {
+                if let Some(rest) = public_base_url.strip_prefix("https://") {
+                    format!("wss://{rest}")
+                } else if let Some(rest) = public_base_url.strip_prefix("http://") {
+                    format!("ws://{rest}")
+                } else {
+                    public_base_url.clone()
+                }
+            })
+            .trim_end_matches('/')
+            .to_string();
         Some(Self {
             auth_token,
             account_sid: std::env::var("TWILIO_ACCOUNT_SID")
@@ -58,6 +75,7 @@ impl TwilioConfig {
                 .ok()
                 .filter(|value| !value.is_empty()),
             public_base_url,
+            media_ws_base_url,
             api_base_url: std::env::var("TWILIO_API_BASE_URL")
                 .unwrap_or_else(|_| "https://api.twilio.com".to_string()),
             http: reqwest::Client::builder()
@@ -206,6 +224,8 @@ pub fn router() -> Router<AppState> {
         .route("/channels/twilio/voice/turn", post(turn))
         .route("/channels/twilio/voice/status", post(status))
         .route("/channels/twilio/voice/start", post(start_call_twiml))
+        .route("/channels/twilio/voice/stream", post(stream_twiml))
+        .route("/channels/twilio/voice/media", get(media_upgrade))
         .route("/channels/twilio/voice/calls", post(create_call))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
 }
@@ -474,6 +494,280 @@ async fn create_call(
     }
 }
 
+fn stream_twiml_for(config: &TwilioConfig, external_id: &str) -> Response {
+    let url = format!(
+        "{}/channels/twilio/voice/media?external_id={}&token={}",
+        config.media_ws_base_url,
+        urlencoding::encode(external_id),
+        config.start_token(external_id)
+    );
+    twiml(&format!(
+        "<Connect><Stream url=\"{}\" /></Connect>",
+        escape(&url)
+    ))
+}
+
+async fn stream_twiml(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    uri: axum::http::Uri,
+    body: Bytes,
+) -> Response {
+    let Some(config) = twilio_for(&state) else {
+        return unavailable();
+    };
+    let Some(params) = verify_request(
+        &config,
+        &state,
+        &headers,
+        uri.path_and_query()
+            .map(|value| value.as_str())
+            .unwrap_or(uri.path()),
+        &body,
+    ) else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
+    let external_id = param(&params, "From");
+    if external_id.is_empty() {
+        return twiml("<Say>We could not identify this call.</Say><Hangup/>");
+    }
+    stream_twiml_for(&config, &external_id)
+}
+
+async fn media_upgrade(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    let Some(config) = twilio_for(&state) else {
+        return unavailable();
+    };
+    let Some(external_id) = query.get("external_id").filter(|value| !value.is_empty()) else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
+    let Some(token) = query.get("token") else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
+    let expected = config.start_token(external_id);
+    if token.len() != expected.len()
+        || token
+            .as_bytes()
+            .iter()
+            .zip(expected.as_bytes())
+            .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+            != 0
+    {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let external_id = external_id.clone();
+    ws.max_message_size(1024 * 1024)
+        .on_upgrade(move |socket| media_socket(socket, state, config, external_id))
+        .into_response()
+}
+
+fn pcm16_to_ulaw(pcm: &[u8]) -> Vec<u8> {
+    pcm.as_chunks::<2>()
+        .0
+        .iter()
+        .map(|chunk| {
+            let sample = i16::from_le_bytes(*chunk);
+            linear_to_ulaw(sample)
+        })
+        .collect()
+}
+
+fn ulaw_to_pcm16(ulaw: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(ulaw.len() * 2);
+    for byte in ulaw {
+        out.extend_from_slice(&ulaw_to_linear(*byte).to_le_bytes());
+    }
+    out
+}
+
+fn linear_to_ulaw(sample: i16) -> u8 {
+    const BIAS: i32 = 0x84;
+    const CLIP: i32 = 32635;
+    let mut sample = sample as i32;
+    let sign = if sample < 0 {
+        sample = -sample;
+        0x80
+    } else {
+        0
+    };
+    let sample = sample.min(CLIP) + BIAS;
+    let exponent = 7 - (sample | 0xff).leading_zeros() as i32;
+    let exponent = exponent.clamp(0, 7);
+    let mantissa = (sample >> (exponent + 3)) & 0x0f;
+    ((sign | (exponent << 4) | mantissa) ^ 0xff) as u8
+}
+
+fn ulaw_to_linear(byte: u8) -> i16 {
+    let byte = !byte;
+    let sign = byte & 0x80;
+    let exponent = ((byte >> 4) & 0x07) as i32;
+    let mantissa = (byte & 0x0f) as i32;
+    let sample = ((mantissa << 3) + 0x84) << exponent;
+    let sample = sample - 0x84;
+    if sign != 0 {
+        (-sample) as i16
+    } else {
+        sample as i16
+    }
+}
+
+fn media_message(stream_sid: &str, payload: &str) -> String {
+    json!({
+        "event": "media",
+        "streamSid": stream_sid,
+        "media": {"payload": payload},
+    })
+    .to_string()
+}
+
+async fn send_pcm_as_ulaw(
+    sink: &mut futures_util::stream::SplitSink<WebSocket, Message>,
+    stream_sid: &str,
+    pcm16_8khz: &[u8],
+) -> bool {
+    let ulaw = pcm16_to_ulaw(pcm16_8khz);
+    for chunk in ulaw.chunks(160) {
+        let payload = STANDARD.encode(chunk);
+        if sink
+            .send(Message::Text(media_message(stream_sid, &payload).into()))
+            .await
+            .is_err()
+        {
+            return false;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    true
+}
+
+async fn speak_text(
+    state: &AppState,
+    sink: &mut futures_util::stream::SplitSink<WebSocket, Message>,
+    stream_sid: &str,
+    text: &str,
+) -> bool {
+    let mut tts = match state.ai.synthesize_stream(text).await {
+        Ok(stream) => stream,
+        Err(error) => {
+            warn!(?error, "Twilio media TTS failed");
+            return false;
+        }
+    };
+    let mut pcm = Vec::new();
+    while let Some(chunk) = tts.next().await {
+        match chunk {
+            Ok(bytes) => pcm.extend_from_slice(&bytes),
+            Err(error) => {
+                warn!(?error, "Twilio media TTS stream failed");
+                return false;
+            }
+        }
+    }
+    let pcm8 = voice_runtime::studio::resample_pcm16(&pcm, 22_050, 8_000);
+    send_pcm_as_ulaw(sink, stream_sid, &pcm8).await
+}
+
+async fn media_socket(
+    socket: WebSocket,
+    state: AppState,
+    _config: Arc<TwilioConfig>,
+    external_id: String,
+) {
+    let (mut sink, mut stream) = socket.split();
+    let mut stream_sid = String::new();
+    let mut vad = crate::vad::TurnDetector::default();
+    let mut utterance = Vec::new();
+
+    while let Some(message) = stream.next().await {
+        let Ok(Message::Text(text)) = message else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_str::<Value>(&text) else {
+            continue;
+        };
+        match value.get("event").and_then(Value::as_str) {
+            Some("start") => {
+                stream_sid = value
+                    .get("streamSid")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                match state
+                    .ai
+                    .start_channel_session(CHANNEL, &external_id, None)
+                    .await
+                {
+                    Ok(session) => {
+                        if !speak_text(&state, &mut sink, &stream_sid, &session.question_text).await
+                        {
+                            return;
+                        }
+                    }
+                    Err(error) => {
+                        warn!(?error, "Twilio media session start failed");
+                        return;
+                    }
+                }
+            }
+            Some("media") => {
+                let Some(payload) = value
+                    .get("media")
+                    .and_then(|media| media.get("payload"))
+                    .and_then(Value::as_str)
+                else {
+                    continue;
+                };
+                let Ok(ulaw) = STANDARD.decode(payload) else {
+                    continue;
+                };
+                let pcm8 = ulaw_to_pcm16(&ulaw);
+                let pcm16 = voice_runtime::studio::resample_pcm16(&pcm8, 8_000, 16_000);
+                let events = vad.push_pcm16_capturing(&pcm16, &mut utterance);
+                if events.contains(&crate::vad::VadEvent::TurnEnded) {
+                    let audio = std::mem::take(&mut utterance);
+                    vad.reset_turn();
+                    let transcript = match state.ai.transcribe(audio).await {
+                        Ok(text) => text,
+                        Err(error) => {
+                            warn!(?error, "Twilio media transcription failed");
+                            continue;
+                        }
+                    };
+                    let mut hasher = Sha1::new();
+                    hasher.update(transcript.as_bytes());
+                    let event_id = format!("{external_id}:media:{:x}", hasher.finalize());
+                    match state
+                        .ai
+                        .channel_message(CHANNEL, &external_id, &event_id, &transcript)
+                        .await
+                    {
+                        Ok(response) => {
+                            if !speak_text(&state, &mut sink, &stream_sid, &response.ai_text).await
+                            {
+                                return;
+                            }
+                            if response.is_complete {
+                                let _ = sink.send(Message::Close(None)).await;
+                                return;
+                            }
+                        }
+                        Err(error) => {
+                            warn!(?error, "Twilio media interview turn failed");
+                            return;
+                        }
+                    }
+                }
+            }
+            Some("stop") | Some("closed") => return,
+            _ => {}
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -484,6 +778,7 @@ mod tests {
             account_sid: Some("AC123".to_string()),
             from_number: Some("+15550001111".to_string()),
             public_base_url: "https://example.test".to_string(),
+            media_ws_base_url: "wss://example.test".to_string(),
             api_base_url: "https://api.twilio.test".to_string(),
             http: reqwest::Client::new(),
         }
@@ -516,6 +811,21 @@ mod tests {
             escape("<hello & 'world'>"),
             "&lt;hello &amp; &apos;world&apos;&gt;"
         );
+    }
+
+    #[test]
+    fn ulaw_round_trip_is_bounded() {
+        let samples: Vec<i16> = (-2000..=2000).step_by(40).collect();
+        let mut pcm = Vec::new();
+        for sample in &samples {
+            pcm.extend_from_slice(&sample.to_le_bytes());
+        }
+        let ulaw = pcm16_to_ulaw(&pcm);
+        let decoded = ulaw_to_pcm16(&ulaw);
+        assert_eq!(decoded.len(), pcm.len());
+        for chunk in decoded.as_chunks::<2>().0 {
+            assert!(i16::from_le_bytes(*chunk).abs() <= 4000);
+        }
     }
 
     #[test]

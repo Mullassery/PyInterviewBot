@@ -41,7 +41,11 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
   inbound/turn/status webhooks, TwiML `<Say>`/`<Gather>` interview loop,
   deterministic idempotency keys, and authenticated outbound call creation.
 - Local signed-webhook smoke test against the mock interview engine.
-- Media Streams and live-account validation remain pending.
+- Twilio Media Streams WebSocket: tokenized TwiML `<Connect><Stream>`, μ-law/PCM
+  codecs, 8k/16k resampling, VAD turn detection, transcription, interview turn
+  advancement, and μ-law TTS playback.
+- Media Streams barge-in/clear, backpressure tests, and live-account validation
+  remain pending.
 
 ### Added (Phase 7 channel domain)
 

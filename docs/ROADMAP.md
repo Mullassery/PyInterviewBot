@@ -30,7 +30,7 @@ Companion documents:
 | `cargo fmt --check` | pass |
 | `cargo clippy --all-targets -- -D warnings` | pass |
 | `cargo clippy --all-targets --features local-neural -- -D warnings` | pass |
-| `cargo test` | **62 passed** (25 gateway + 32 runtime + 5 domain) |
+| `cargo test` | **66 passed** (29 gateway + 32 runtime + 5 domain) |
 | `cargo test -p voice-runtime --features local-neural` | **63 passed** |
 | `uv run ruff check .` | pass |
 | `uv run --group dev python -m pytest -q` | **30 passed** |
@@ -188,7 +188,8 @@ Implemented:
 
 Pending:
 
-- Twilio Media Streams real-time audio with barge-in/backpressure.
+- Twilio Media Streams barge-in (`clear` + playback cancellation), explicit
+  backpressure/pacing tests, and provider media-limit validation.
 - Live Twilio account validation and callback URL registration.
 - Durable call-lifecycle event persistence beyond status logging.
 - Recording/consent configuration for Twilio.`
@@ -324,7 +325,7 @@ sufficient. Do not implement a text-only bot and call it a live interviewer.
 | Shared channel-independent domain | Implemented and tested | Rust contracts + SQLite mapping/idempotency + cross-channel tests |
 | Channel-neutral session/message API | Implemented and tested | `/channels/{channel}/sessions` and `/messages` |
 | Twilio outbound/inbound voice | Implemented, not live-verified | Signed webhook + TwiML smoke; live account needed |
-| Twilio real-time media | Pending | No media-stream adapter |
+| Twilio real-time media | Implemented, not live-verified | Signed TwiML + WebSocket media smoke; no live call |
 | WhatsApp text interviews | Pending | No adapter; WhatsApp Business approval needed |
 | WhatsApp voice notes | Pending | No media pipeline; approval needed |
 | WhatsApp live voice | Blocked / unverified | Provider capability and approval must be confirmed |

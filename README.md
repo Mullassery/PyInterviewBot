@@ -70,7 +70,7 @@ This platform:                Listen → Understand → Probe → Verify → Ass
 | Native Rust speech studio / local neural TTS+ASR | Implemented and tested with operator-supplied models |
 | Channel-neutral session/message API | Implemented and tested |
 | Twilio voice (inbound/outbound, gather/transcribe) | **Implemented, not live-verified** |
-| Twilio Media Streams real-time audio | **Not implemented** |
+| Twilio Media Streams real-time audio | **Implemented, not live-verified** |
 | WhatsApp text interviews | **Not implemented** |
 | WhatsApp voice-note interviews | **Not implemented** |
 | WhatsApp live voice calls | **Blocked / unverified** |
@@ -316,12 +316,17 @@ Routes:
 - `POST /channels/twilio/voice/calls` — authenticated outbound call creation
   (`{"to":"+1555...","external_id":"candidate-1"}`).
 - `POST /channels/twilio/voice/start` — tokenized TwiML entry for outbound calls.
+- `POST /channels/twilio/voice/stream` — signed TwiML `<Connect><Stream>` entry.
+- `GET /channels/twilio/voice/media` — tokenized WebSocket media stream. It
+  decodes Twilio μ-law 8kHz audio, runs VAD turn detection at 16kHz, transcribes,
+  advances the interview, and returns μ-law TTS audio.
 
 Signatures use the documented `X-Twilio-Signature` HMAC-SHA1 scheme over the
 public URL plus sorted POST parameters. Call SID and speech text form the
 idempotent event ID. Live calls require an approved Twilio account and public
 HTTPS callback URL; only signed mock-engine webhooks have been verified locally.
-Media Streams are not implemented.
+Media Streams are implemented and locally smoke-tested, but live call validation,
+barge-in clearing, backpressure, and provider media limits remain unverified.
 
 ## Channel-neutral interview API
 
@@ -361,12 +366,17 @@ Routes:
 - `POST /channels/twilio/voice/calls` — authenticated outbound call creation
   (`{"to":"+1555...","external_id":"candidate-1"}`).
 - `POST /channels/twilio/voice/start` — tokenized TwiML entry for outbound calls.
+- `POST /channels/twilio/voice/stream` — signed TwiML `<Connect><Stream>` entry.
+- `GET /channels/twilio/voice/media` — tokenized WebSocket media stream. It
+  decodes Twilio μ-law 8kHz audio, runs VAD turn detection at 16kHz, transcribes,
+  advances the interview, and returns μ-law TTS audio.
 
 Signatures use the documented `X-Twilio-Signature` HMAC-SHA1 scheme over the
 public URL plus sorted POST parameters. Call SID and speech text form the
 idempotent event ID. Live calls require an approved Twilio account and public
 HTTPS callback URL; only signed mock-engine webhooks have been verified locally.
-Media Streams are not implemented.
+Media Streams are implemented and locally smoke-tested, but live call validation,
+barge-in clearing, backpressure, and provider media limits remain unverified.
 
 ## Channel-neutral interview API
 
