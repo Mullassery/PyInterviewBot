@@ -230,10 +230,23 @@ PYINTERVIEWBOT_ASR_PROVIDER=local
 PYINTERVIEWBOT_TTS_PROVIDER=local
 PYINTERVIEWBOT_LLM_PROVIDER=local
 
+# Optional OpenRouter cloud LLM (explicit model; key stays server-side)
+PYINTERVIEWBOT_LLM_PROVIDER=openrouter
+OPENROUTER_API_KEY=...
+OPENROUTER_MODEL=anthropic/claude-3.5-sonnet  # any OpenRouter model id
+# optional: OPENROUTER_BASE_URL, OPENROUTER_TIMEOUT_SECONDS,
+#           OPENROUTER_MAX_RETRIES, OPENROUTER_RESPONSE_FORMAT,
+#           OPENROUTER_SITE_URL, OPENROUTER_APP_NAME
+
 ```
 
 `GET /providers` (authenticated) reports configured providers, capabilities,
-and health. The self-hosted Rust voice runtime lives in `voice-runtime/` and is
+and health. `OPENROUTER_MODEL` accepts any model id OpenRouter offers
+(OpenAI, Anthropic, Google, Meta, Mistral, Qwen, DeepSeek, and others). Changing
+the model is an explicit configuration change followed by a service restart;
+`/providers` exposes the active model id. Models without structured-output
+support are retried once without `response_format`. OpenRouter is a cloud dependency: prompts and interview context
+leave the machine and usage may be billed. Keep `OPENROUTER_API_KEY` server-side. The self-hosted Rust voice runtime lives in `voice-runtime/` and is
 built/tested with the workspace. The managed-call workflow is optional and is
 never required—see [`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MATRIX.md).
 

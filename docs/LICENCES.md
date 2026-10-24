@@ -31,6 +31,14 @@ Snapshot date: 2026-10-25. Not legal advice. Verify before distribution.
 - Piper voice (`en_US-lessac-medium`): verify the voice/model card terms before
   redistribution.
 
+## Optional cloud LLM
+
+- OpenRouter is an optional third-party service, not bundled code. Its API usage,
+  model availability, pricing, data processing, retention, and region are governed
+  by the operator's OpenRouter account and the selected upstream model's terms.
+- No OpenRouter SDK is vendored; the adapter uses the documented
+  OpenAI-compatible `/chat/completions` HTTP shape.
+
 ## Integration boundary
 
 The voice runtime is implemented natively in Rust in this repository. It does

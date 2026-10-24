@@ -33,7 +33,7 @@ Companion documents:
 | `cargo test` | **80 passed** (43 gateway + 32 runtime + 5 domain) |
 | `cargo test -p voice-runtime --features local-neural` | **63 passed** |
 | `uv run ruff check .` | pass |
-| `uv run --group dev python -m pytest -q` | **46 passed** |
+| `uv run --group dev python -m pytest -q` | **53 passed** |
 | `npx tsc --noEmit` | pass |
 | `npm run build` | pass |
 | Live native gateway smoke | health, sessions, speech, chunked speech, transcription, recording export/clear/delete, auth rejection |
@@ -402,6 +402,7 @@ complete in README, sales material, or release notes.
 | Consent/retention operations | Partial | Delete endpoints; no policy UI/automation or disk audio retention | Privacy/legal exposure | P0 |
 | AI-service audit coverage | Partial | Gateway audit only; review/delete/export in ai-service not audited | Weak accountability | P0 |
 | Observability/load/cost | Missing | No metrics/tracing export, load tests, or cost-per-interview | No SLO/regression evidence | P1 |
+| OpenRouter live validation | Not live-verified | Mock-HTTP contract tests; no live key/account run | Model availability, latency, pricing, data-processing terms | P1 |
 | Proctoring/identity/liveness/emotion/gaze/MBTI | Deliberately excluded | Not implemented; see competitive intelligence | Biometric/high-risk processing without consent/DPIA | Blocked |
 
 ---

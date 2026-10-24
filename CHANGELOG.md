@@ -58,6 +58,20 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
 - Agent replaces non-compliant generated questions with safe template fallbacks.
 - Personality/MBTI inference is deliberately excluded from hiring evaluation.
 
+### Added (OpenRouter LLM provider)
+
+- Optional `openrouter` LLM provider using the OpenAI-compatible
+  `/chat/completions` API with explicit `OPENROUTER_MODEL` selection.
+- Retry/backoff for retryable failures, JSON extraction/validation, and
+  normalized provider errors.
+- Server-side API key handling and model/capability reporting through
+  `/providers`.
+- Model ids are arbitrary OpenRouter ids (not OpenAI-specific); models that reject
+  `response_format` fall back once to prompt-constrained JSON.
+- Contract tests cover non-OpenAI model ids, request shape, auth, retries,
+  invalid JSON, health, format fallback, and registry selection. Live OpenRouter
+  validation remains pending.
+
 ### Added (report generation and audit trail)
 
 - Deterministic report renderers for Markdown, HTML, CSV, and JSON over the

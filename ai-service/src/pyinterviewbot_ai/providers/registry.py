@@ -2,8 +2,8 @@
 
 Selection is explicit and provider-neutral: ``PYINTERVIEWBOT_ASR_PROVIDER``,
 ``PYINTERVIEWBOT_TTS_PROVIDER``, and ``PYINTERVIEWBOT_LLM_PROVIDER`` accept
-``local`` or ``mock``. Unknown values fail closed with a clear error instead
-of silently falling back.
+``local``, ``mock``, or ``openrouter`` (LLM only). Unknown values fail closed
+with a clear error instead of silently falling back.
 """
 
 from __future__ import annotations
@@ -51,8 +51,13 @@ def _build(kind: str, provider: str) -> Any:
             "tts": LocalTextToSpeech,
             "llm": LocalLanguageModel,
         }[kind]()
+    if provider == "openrouter" and kind == "llm":
+        from .openrouter import OpenRouterLanguageModel
+
+        return OpenRouterLanguageModel()
     raise ValueError(
-        f"unknown {kind} provider '{provider}'; expected local or mock"
+        f"unknown {kind} provider '{provider}'; expected local, mock"
+        + (", or openrouter" if kind == "llm" else "")
     )
 
 
