@@ -1,15 +1,16 @@
 from __future__ import annotations
 
+import hmac
 import os
 from contextlib import asynccontextmanager
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from . import agent, db, documents, providers, report, templates
-from .auth import require_auth
+from . import agent, db, documents, providers, rate_limit, report, templates
+from .auth import hash_session_token, require_auth
 from .models import (
     ReviewRequest,
     SessionListItem,
@@ -38,6 +39,26 @@ ALLOWED_ORIGINS = [
     if origin.strip()
 ]
 MAX_AUDIO_BYTES = int(os.environ.get("PYINTERVIEWBOT_MAX_AUDIO_BYTES", str(10 * 1024 * 1024)))
+limiter = rate_limit.build_limiter()
+
+
+def _require_session_token() -> bool:
+    return os.environ.get("PYINTERVIEWBOT_REQUIRE_SESSION_TOKEN", "").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+
+
+def _rate_limit_key(request: Request) -> str:
+    api_key = request.headers.get("x-api-key")
+    if api_key:
+        return f"key:{api_key}"
+    authorization = request.headers.get("authorization", "")
+    if authorization.lower().startswith("bearer "):
+        return f"key:{authorization[7:].strip()}"
+    host = request.client.host if request.client else "unknown"
+    return f"ip:{host}"
 
 
 @asynccontextmanager
@@ -68,6 +89,20 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    if request.url.path == "/health":
+        return await call_next(request)
+    allowed, retry_after = limiter.allow(_rate_limit_key(request))
+    if not allowed:
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "rate limit exceeded; retry later"},
+            headers={"Retry-After": str(retry_after)},
+        )
+    return await call_next(request)
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -80,13 +115,16 @@ async def health() -> dict[str, str]:
 )
 async def create_session(req: StartSessionRequest) -> StartSessionResponse:
     try:
-        session_id, question_text, template_id = await agent.start_session(req.template_id)
+        session_id, question_text, template_id, session_token = await agent.start_session(
+            req.template_id
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return StartSessionResponse(
         session_id=session_id,
         question_text=question_text,
         template_id=template_id,
+        session_token=session_token,
     )
 
 
@@ -95,7 +133,22 @@ async def create_session(req: StartSessionRequest) -> StartSessionResponse:
     response_model=TurnResponse,
     dependencies=[Depends(require_auth)],
 )
-async def turn(session_id: UUID, req: TurnRequest) -> TurnResponse:
+async def turn(
+    session_id: UUID,
+    req: TurnRequest,
+    x_session_token: str | None = Header(default=None),
+) -> TurnResponse:
+    row = await db.get_session_row(session_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"unknown session {session_id}")
+    stored_hash = (row["token_hash"] or "").strip()
+    if x_session_token:
+        if not stored_hash or not hmac.compare_digest(
+            hash_session_token(x_session_token), stored_hash
+        ):
+            raise HTTPException(status_code=403, detail="invalid session token")
+    elif _require_session_token():
+        raise HTTPException(status_code=403, detail="session token required")
     try:
         return await agent.take_turn(session_id, req.transcript)
     except ValueError as exc:

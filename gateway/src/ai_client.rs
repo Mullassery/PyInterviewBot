@@ -55,6 +55,8 @@ struct StartSessionRequest {
 pub struct StartSessionResponse {
     pub session_id: Uuid,
     pub question_text: String,
+    #[serde(default)]
+    pub session_token: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -141,17 +143,20 @@ impl AiClient {
         &self,
         session_id: Uuid,
         transcript: &str,
+        session_token: Option<&str>,
     ) -> Result<TurnResponse, AiClientError> {
-        let resp = self
+        let mut request = self
             .request(
                 reqwest::Method::POST,
                 &format!("/sessions/{}/turn", session_id),
             )
             .json(&TurnRequest {
                 transcript: transcript.to_string(),
-            })
-            .send()
-            .await?;
+            });
+        if let Some(token) = session_token {
+            request = request.header("x-session-token", token);
+        }
+        let resp = request.send().await?;
         Ok(Self::check_status(resp).await?.json().await?)
     }
 
@@ -229,7 +234,8 @@ mod tests {
             *captured.lock().unwrap() = Some((key, parsed));
             Json(serde_json::json!({
                 "session_id": "00000000-0000-0000-0000-000000000001",
-                "question_text": "hello"
+                "question_text": "hello",
+                "session_token": "session-token"
             }))
         }
 
@@ -247,11 +253,50 @@ mod tests {
             .with_template(Some("backend_engineer".to_string()));
         let started = client.start_session().await.unwrap();
         assert_eq!(started.question_text, "hello");
+        assert_eq!(started.session_token.as_deref(), Some("session-token"));
 
         let (key, body) = captured.lock().unwrap().clone().expect("request captured");
         assert_eq!(key.as_deref(), Some("secret"));
         assert_eq!(body["template_id"], "backend_engineer");
         assert_eq!(body["resume_seed"], true);
+    }
+
+    #[tokio::test]
+    async fn agent_turn_forwards_session_token() {
+        use axum::{extract::State, http::HeaderMap, routing::post, Json, Router};
+        use std::sync::{Arc, Mutex};
+
+        type Captured = Arc<Mutex<Option<String>>>;
+        let captured: Captured = Arc::new(Mutex::new(None));
+
+        async fn handler(
+            State(captured): State<Captured>,
+            headers: HeaderMap,
+        ) -> Json<serde_json::Value> {
+            let token = headers
+                .get("x-session-token")
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string);
+            *captured.lock().unwrap() = token;
+            Json(serde_json::json!({"ai_text": "next", "is_complete": false}))
+        }
+
+        let app = Router::new()
+            .route("/sessions/{id}/turn", post(handler))
+            .with_state(captured.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let client = AiClient::new(format!("http://{addr}"));
+        let response = client
+            .agent_turn(Uuid::new_v4(), "answer", Some("session-token"))
+            .await
+            .unwrap();
+        assert_eq!(response.ai_text, "next");
+        assert_eq!(captured.lock().unwrap().as_deref(), Some("session-token"));
     }
 
     #[tokio::test]

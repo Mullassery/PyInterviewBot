@@ -142,6 +142,7 @@ async fn handle_socket(socket: WebSocket, app: AppState) {
     };
 
     let mut session = Session::with_config(start.session_id, app.session_config);
+    session.ai_session_token = start.session_token.clone();
     info!(session_id = %session.id, ai_session_id = %session.ai_session_id, "interview session started");
 
     session.state = apply(&mut session, Event::StartSpeaking);
@@ -213,7 +214,15 @@ async fn handle_socket(socket: WebSocket, app: AppState) {
             }
         };
 
-        let decision = match app.ai.agent_turn(session.ai_session_id, &transcript).await {
+        let decision = match app
+            .ai
+            .agent_turn(
+                session.ai_session_id,
+                &transcript,
+                session.ai_session_token.as_deref(),
+            )
+            .await
+        {
             Ok(d) => d,
             Err(e) => {
                 warn!(?e, "agent turn failure");

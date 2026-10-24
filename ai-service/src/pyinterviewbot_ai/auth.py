@@ -9,6 +9,7 @@ a network-exposed service fails closed.
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import os
 
@@ -51,4 +52,8 @@ async def require_auth(
         )
 
 
-__all__ = ["API_KEY_ENV", "require_auth"]
+def hash_session_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+__all__ = ["API_KEY_ENV", "hash_session_token", "require_auth"]

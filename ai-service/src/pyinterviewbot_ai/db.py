@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     created_at TEXT NOT NULL,
     resume_claim TEXT NOT NULL,
     template_id TEXT NOT NULL DEFAULT 'rag_architect',
+    token_hash TEXT NOT NULL DEFAULT '',
     turn_count INTEGER NOT NULL DEFAULT 0,
     is_complete INTEGER NOT NULL DEFAULT 0
 );
@@ -77,6 +78,10 @@ async def init_db() -> None:
                 "ALTER TABLE sessions ADD COLUMN template_id TEXT NOT NULL "
                 "DEFAULT 'rag_architect'"
             )
+        if "token_hash" not in columns:
+            await db.execute(
+                "ALTER TABLE sessions ADD COLUMN token_hash TEXT NOT NULL DEFAULT ''"
+            )
         await db.commit()
 
 
@@ -94,13 +99,16 @@ def _now() -> str:
 
 
 async def create_session(
-    session_id: UUID, claim: ResumeClaim, template_id: str = "rag_architect"
+    session_id: UUID,
+    claim: ResumeClaim,
+    template_id: str = "rag_architect",
+    token_hash: str = "",
 ) -> None:
     async with connect() as db:
         await db.execute(
-            "INSERT INTO sessions (id, created_at, resume_claim, template_id) "
-            "VALUES (?, ?, ?, ?)",
-            (str(session_id), _now(), claim.text, template_id),
+            "INSERT INTO sessions (id, created_at, resume_claim, template_id, token_hash) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (str(session_id), _now(), claim.text, template_id, token_hash),
         )
         await db.commit()
 

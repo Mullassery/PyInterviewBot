@@ -8,9 +8,11 @@ decisions.
 from __future__ import annotations
 
 import os
+import secrets
 from uuid import UUID, uuid4
 
 from . import db
+from .auth import hash_session_token
 from .evidence import EvidenceGraphState
 from .models import TurnResponse
 from .providers import EvidenceNodeSpec, TurnContext, get_language_model
@@ -122,11 +124,19 @@ async def _load_graph(session_id: UUID, template: InterviewTemplate) -> Evidence
     return graph
 
 
-async def start_session(template_id: str | None = None) -> tuple[UUID, str, str]:
+async def start_session(
+    template_id: str | None = None,
+) -> tuple[UUID, str, str, str]:
     template = get_template(template_id)
     session_id = uuid4()
     claim = seed_claim(template.competency)
-    await db.create_session(session_id, claim, template.id)
+    session_token = secrets.token_urlsafe(32)
+    await db.create_session(
+        session_id,
+        claim,
+        template.id,
+        token_hash=hash_session_token(session_token),
+    )
 
     graph = EvidenceGraphState(node_specs=_node_specs(template))
     planner = get_language_model()
@@ -139,7 +149,7 @@ async def start_session(template_id: str | None = None) -> tuple[UUID, str, str]
     await db.append_transcript(session_id, 0, "ai", decision.question_text)
     await db.set_turn_count(session_id, 0)
 
-    return session_id, decision.question_text, template.id
+    return session_id, decision.question_text, template.id, session_token
 
 
 async def take_turn(session_id: UUID, transcript: str) -> TurnResponse:

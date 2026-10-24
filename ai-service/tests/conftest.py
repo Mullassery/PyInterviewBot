@@ -8,7 +8,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from pyinterviewbot_ai import db, providers
+from pyinterviewbot_ai import db, main, providers
+from pyinterviewbot_ai.rate_limit import SlidingWindowLimiter
 
 
 @pytest.fixture(autouse=True)
@@ -19,6 +20,7 @@ def isolated_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ite
     monkeypatch.setenv("PYINTERVIEWBOT_ASR_PROVIDER", "mock")
     monkeypatch.setenv("PYINTERVIEWBOT_TTS_PROVIDER", "mock")
     providers.reset_providers()
+    main.limiter = SlidingWindowLimiter(limit=1_000)
     yield
     providers.reset_providers()
 

@@ -35,6 +35,7 @@ pub struct Session {
     pub utterance_buf: Vec<u8>,
     pub turn_number: u32,
     pub max_utterance_bytes: usize,
+    pub ai_session_token: Option<String>,
 }
 
 impl Session {
@@ -47,6 +48,7 @@ impl Session {
             utterance_buf: Vec::new(),
             turn_number: 0,
             max_utterance_bytes: config.max_utterance_bytes,
+            ai_session_token: None,
         }
     }
 

@@ -22,6 +22,7 @@ class StartSessionResponse(BaseModel):
     session_id: UUID
     question_text: str
     template_id: str = "rag_architect"
+    session_token: str | None = None
 
 
 class TurnRequest(BaseModel):
