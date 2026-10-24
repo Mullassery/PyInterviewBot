@@ -18,6 +18,9 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
   normalization), and unit tests.
 - Gateway integration for the native runtime at `/native/voice/*` and the
   optional `/native/managed-call/*` workflow, sharing gateway authentication.
+- Native studio audio processing (RMS, silence trim, peak normalize,
+  concatenate, chunking) and explicit in-memory recording/export/deletion
+  endpoints with size bounds.
 - Versioned interview templates (`rag_architect`, `backend_engineer`,
   `data_engineer`) with persisted `sessions.template_id` and in-place SQLite
   migration.

@@ -212,6 +212,15 @@ curl -H "Authorization: Bearer $GATEWAY_API_KEY" -H 'content-type: application/j
 curl -H "Authorization: Bearer $GATEWAY_API_KEY" -H 'content-type: application/octet-stream' \
   -X POST 'http://127.0.0.1:8787/native/voice/sessions/'$SID'/transcribe?sample_rate=16000' \
   --data-binary @answer.pcm
+# Explicit recording (never automatic; in-memory until cleared/session close)
+curl -H "Authorization: Bearer $GATEWAY_API_KEY" -H 'content-type: application/octet-stream' \
+  -X POST 'http://127.0.0.1:8787/native/voice/sessions/'$SID'/record?sample_rate=16000' \
+  --data-binary @answer.pcm
+curl -H "Authorization: Bearer $GATEWAY_API_KEY" \
+  http://127.0.0.1:8787/native/voice/sessions/$SID/recording.wav --output recording.wav
+curl -X DELETE -H "Authorization: Bearer $GATEWAY_API_KEY" \
+  http://127.0.0.1:8787/native/voice/sessions/$SID/recording
+
 curl -X DELETE -H "Authorization: Bearer $GATEWAY_API_KEY" \
   http://127.0.0.1:8787/native/voice/sessions/$SID
 

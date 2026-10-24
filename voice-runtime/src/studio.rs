@@ -96,6 +96,92 @@ impl AudioBuffer {
         })
     }
 
+    pub fn samples(&self) -> Vec<i16> {
+        self.pcm16
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|chunk| i16::from_le_bytes(*chunk))
+            .collect()
+    }
+
+    pub fn rms(&self) -> f64 {
+        let samples = self.samples();
+        if samples.is_empty() {
+            return 0.0;
+        }
+        let sum: f64 = samples
+            .iter()
+            .map(|sample| (*sample as f64) * (*sample as f64))
+            .sum();
+        (sum / samples.len() as f64).sqrt()
+    }
+
+    pub fn trim_silence(&self, threshold: i16) -> Self {
+        let samples = self.samples();
+        let first = samples.iter().position(|sample| sample.abs() > threshold);
+        let last = samples.iter().rposition(|sample| sample.abs() > threshold);
+        let trimmed = match (first, last) {
+            (Some(first), Some(last)) => &samples[first..=last],
+            _ => &[],
+        };
+        let mut pcm16 = Vec::with_capacity(trimmed.len() * 2);
+        for sample in trimmed {
+            pcm16.extend_from_slice(&sample.to_le_bytes());
+        }
+        Self {
+            format: self.format,
+            pcm16,
+        }
+    }
+
+    pub fn normalize_peak(&self, target: i16) -> Self {
+        let samples = self.samples();
+        let peak = samples
+            .iter()
+            .map(|sample| sample.unsigned_abs())
+            .max()
+            .unwrap_or(0);
+        if peak == 0 {
+            return self.clone();
+        }
+        let scale = target.unsigned_abs() as f64 / peak as f64;
+        let mut pcm16 = Vec::with_capacity(self.pcm16.len());
+        for sample in samples {
+            let value = (sample as f64 * scale)
+                .round()
+                .clamp(i16::MIN as f64, i16::MAX as f64) as i16;
+            pcm16.extend_from_slice(&value.to_le_bytes());
+        }
+        Self {
+            format: self.format,
+            pcm16,
+        }
+    }
+
+    pub fn concatenate(buffers: &[AudioBuffer]) -> Result<Self, StudioError> {
+        let Some(first) = buffers.first() else {
+            return Err(StudioError::InvalidAudio(
+                "cannot concatenate an empty list".to_string(),
+            ));
+        };
+        let mut pcm16 = Vec::new();
+        for buffer in buffers {
+            if buffer.format != first.format {
+                return Err(StudioError::UnsupportedFormat(
+                    "all buffers must share one format".to_string(),
+                ));
+            }
+            pcm16.extend_from_slice(&buffer.pcm16);
+        }
+        Self::new(first.format, pcm16)
+    }
+
+    pub fn chunked(&self, max_bytes: usize) -> Vec<Vec<u8>> {
+        let max_bytes = (max_bytes.max(2) / 2) * 2;
+        self.pcm16.chunks(max_bytes).map(<[u8]>::to_vec).collect()
+    }
+
     pub fn to_wav(&self) -> Vec<u8> {
         encode_wav(self)
     }
@@ -329,6 +415,7 @@ struct StudioSession {
     sequence: std::sync::atomic::AtomicU64,
     cancelled: AtomicBool,
     speaking: AtomicBool,
+    recording: Mutex<Vec<u8>>,
     last_activity: Mutex<Instant>,
     closed: AtomicBool,
 }
@@ -340,6 +427,7 @@ impl StudioSession {
             sequence: std::sync::atomic::AtomicU64::new(0),
             cancelled: AtomicBool::new(false),
             speaking: AtomicBool::new(false),
+            recording: Mutex::new(Vec::new()),
             last_activity: Mutex::new(Instant::now()),
             closed: AtomicBool::new(false),
         }
@@ -492,6 +580,43 @@ impl SpeechStudio {
             language: language.to_string(),
         });
         Ok(text)
+    }
+
+    pub async fn record_audio(
+        &self,
+        session_id: StudioSessionId,
+        audio: &AudioBuffer,
+    ) -> Result<usize, StudioError> {
+        let session = self.session(session_id).await?;
+        if session.closed.load(Ordering::SeqCst) {
+            return Err(StudioError::SessionClosed);
+        }
+        let audio = audio.resampled(self.config.asr_format.sample_rate)?;
+        let total = {
+            let mut recording = session.recording.lock().await;
+            if recording.len() + audio.pcm16.len() > self.config.max_audio_bytes {
+                return Err(StudioError::AudioTooLarge);
+            }
+            recording.extend_from_slice(&audio.pcm16);
+            recording.len()
+        };
+        session.touch().await;
+        Ok(total)
+    }
+
+    pub async fn recording_wav(
+        &self,
+        session_id: StudioSessionId,
+    ) -> Result<AudioBuffer, StudioError> {
+        let session = self.session(session_id).await?;
+        let data = session.recording.lock().await.clone();
+        AudioBuffer::new(self.config.asr_format, data)
+    }
+
+    pub async fn clear_recording(&self, session_id: StudioSessionId) -> Result<(), StudioError> {
+        let session = self.session(session_id).await?;
+        session.recording.lock().await.clear();
+        Ok(())
     }
 
     pub async fn end_session(&self, session_id: StudioSessionId) -> Result<(), StudioError> {
@@ -746,6 +871,51 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(20)).await;
         assert_eq!(studio.sweep_idle().await, vec![id]);
         assert_eq!(studio.active_sessions().await, 0);
+    }
+
+    #[test]
+    fn audio_processing_helpers_are_deterministic() {
+        let mut pcm = vec![0u8; 20];
+        for index in 0..10 {
+            let sample = if !(2..=7).contains(&index) {
+                0i16
+            } else {
+                1000i16
+            };
+            pcm[index * 2..index * 2 + 2].copy_from_slice(&sample.to_le_bytes());
+        }
+        let buffer = AudioBuffer::new(AudioFormat::pcm16(16_000), pcm).unwrap();
+        assert_eq!(buffer.samples().len(), 10);
+        let trimmed = buffer.trim_silence(10);
+        assert_eq!(trimmed.samples(), vec![1000; 6]);
+        let normalized = trimmed.normalize_peak(20_000);
+        assert_eq!(normalized.samples(), vec![20_000; 6]);
+        let chunks = normalized.chunked(4);
+        assert!(chunks.iter().all(|chunk| chunk.len() <= 4));
+        assert_eq!(chunks.concat(), normalized.pcm16);
+    }
+
+    #[tokio::test]
+    async fn recording_is_explicit_bounded_and_exportable() {
+        let studio = SpeechStudio::new(
+            Arc::new(MockSpeechEngine::default()),
+            StudioConfig {
+                max_audio_bytes: 32,
+                ..StudioConfig::default()
+            },
+        );
+        let id = studio.start_session().await.unwrap();
+        let audio = AudioBuffer::silence(AudioFormat::pcm16(16_000), Duration::from_millis(1));
+        assert_eq!(studio.record_audio(id, &audio).await.unwrap(), 32);
+        assert!(matches!(
+            studio.record_audio(id, &audio).await,
+            Err(StudioError::AudioTooLarge)
+        ));
+        let recorded = studio.recording_wav(id).await.unwrap();
+        assert_eq!(recorded.format, AudioFormat::pcm16(16_000));
+        assert!(!recorded.to_wav().is_empty());
+        studio.clear_recording(id).await.unwrap();
+        assert!(studio.recording_wav(id).await.unwrap().pcm16.is_empty());
     }
 
     #[tokio::test]

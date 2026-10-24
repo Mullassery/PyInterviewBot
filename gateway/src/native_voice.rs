@@ -36,6 +36,18 @@ pub fn router() -> Router<AppState> {
             post(transcribe).layer(DefaultBodyLimit::max(MAX_BODY_BYTES)),
         )
         .route("/native/voice/sessions/{id}/interrupt", post(interrupt))
+        .route(
+            "/native/voice/sessions/{id}/record",
+            post(record).layer(DefaultBodyLimit::max(MAX_BODY_BYTES)),
+        )
+        .route(
+            "/native/voice/sessions/{id}/recording.wav",
+            get(download_recording),
+        )
+        .route(
+            "/native/voice/sessions/{id}/recording",
+            delete(clear_recording),
+        )
         .route("/native/voice/sessions/{id}", delete(close_session))
         .route("/native/managed-call/status", get(managed_status))
         .route("/native/managed-call/calls", post(create_call))
@@ -259,6 +271,69 @@ async fn interrupt(
         Ok(interrupted) => Json(json!({ "interrupted": interrupted })).into_response(),
         Err(error) => studio_error(error),
     }
+}
+
+async fn record(
+    State(state): State<AppState>,
+    Path(session_id): Path<Uuid>,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+    body: Bytes,
+) -> Response {
+    if let Some(response) = check_auth(&state, &headers, &query) {
+        return response;
+    }
+    let format = AudioFormat::pcm16(query_sample_rate(&query));
+    let audio = match AudioBuffer::new(format, body.to_vec()) {
+        Ok(audio) => audio,
+        Err(error) => return studio_error(error),
+    };
+    match state.studio.record_audio(session_id, &audio).await {
+        Ok(total_bytes) => Json(json!({ "total_bytes": total_bytes })).into_response(),
+        Err(error) => studio_error(error),
+    }
+}
+
+async fn download_recording(
+    State(state): State<AppState>,
+    Path(session_id): Path<Uuid>,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    if let Some(response) = check_auth(&state, &headers, &query) {
+        return response;
+    }
+    match state.studio.recording_wav(session_id).await {
+        Ok(audio) => wav_response(&audio.to_wav()),
+        Err(error) => studio_error(error),
+    }
+}
+
+async fn clear_recording(
+    State(state): State<AppState>,
+    Path(session_id): Path<Uuid>,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    if let Some(response) = check_auth(&state, &headers, &query) {
+        return response;
+    }
+    match state.studio.clear_recording(session_id).await {
+        Ok(()) => Json(json!({ "cleared": true, "session_id": session_id })).into_response(),
+        Err(error) => studio_error(error),
+    }
+}
+
+fn wav_response(wav: &[u8]) -> Response {
+    let mut headers = HeaderMap::new();
+    headers.insert("content-type", "audio/wav".parse().expect("static header"));
+    headers.insert(
+        "content-disposition",
+        "inline; filename=\"recording.wav\""
+            .parse()
+            .expect("static header"),
+    );
+    (headers, wav.to_vec()).into_response()
 }
 
 async fn close_session(

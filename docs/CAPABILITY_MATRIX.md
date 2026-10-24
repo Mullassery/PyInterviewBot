@@ -11,7 +11,7 @@ distribution or commercial use.
 | Model-weight terms | No model weights bundled | faster-whisper/Whisper, Ollama model, Piper voice: verify each |
 | ASR | Speech-engine contract + deterministic mock | faster-whisper per-utterance batch |
 | TTS | Speech-engine contract + deterministic mock | Piper, streamed PCM16 |
-| Audio processing | PCM16/WAV codec, resampling, limits, session recording | Python-side model I/O |
+| Audio processing | PCM16/WAV codec, resampling, RMS/trim/normalize/concat/chunk, explicit in-memory recording/export | Python-side model I/O |
 | VAD / turn detection | Runtime lifecycle + gateway `earshot` VAD + configurable silence | `earshot` + configurable trailing silence |
 | Interview state ownership | PyInterviewBot (runtime never owns questions/evidence) | PyInterviewBot (SQLite + deterministic FSM) |
 | Barge-in / cancellation | Yes: interrupt transition + engine cancellation | Yes, cancels TTS and signals client |

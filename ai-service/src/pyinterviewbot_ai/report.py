@@ -105,7 +105,10 @@ def build_report(
                 "Accent, vocal attractiveness, emotion, personality, protected characteristics, "
                 "and unrelated communication style are not evaluated."
             ),
-            "Raw audio is not persisted by this deployment; reports are transcript-based.",
+            (
+                "Interview-flow audio is not persisted by this deployment; reports are "
+                "transcript-based. The native studio recording API is explicit and in-memory."
+            ),
             "A human reviewer must confirm or reject evidence before any employment decision.",
         ],
     )

@@ -33,7 +33,8 @@ gaps) and `docs/CAPABILITY_MATRIX.md` (provider/licence boundaries).
 | Oversized audio / memory growth | Per-turn byte cap, WebSocket frame/message cap, `/asr/transcribe` 413 limit |
 | Cross-origin browser reads | Configurable CORS allowlist; no wildcard default |
 | Session deletion/retention | `DELETE /sessions/{id}` removes transcript, evidence, reviews |
-| PII in reports | Reports contain transcript quotes and rubric evidence only; no audio persisted |
+| PII in reports | Reports contain transcript quotes and rubric evidence only; interview-flow audio is not persisted |
+| Native studio recording | Explicit caller action only; in-memory, size-bounded, clearable, and dropped on session close |
 | Biased scoring | Report policy excludes accent, attractiveness, emotion, personality, protected traits; human review required |
 | Provider secrets in browser | Provider calls are server-side only; the managed-call client reads its private key on the server |
 | Webhook spoofing | Optional constant-time Bearer/HMAC verification |
@@ -48,7 +49,9 @@ gaps) and `docs/CAPABILITY_MATRIX.md` (provider/licence boundaries).
   API across trust boundaries until session-scoped tokens exist.
 - No rate limiting or quotas. Add at the reverse proxy or a gateway middleware
   before any network deployment.
-- No audio recording/playback, so no audio-retention controls exist yet.
+- The interview WebSocket flow does not record audio. The native studio has an
+  explicit in-memory recording API with clear/session-close deletion, but no
+  disk retention policy or consent UI for that endpoint yet.
 - No SSRF-heavy URL fetching in the current paths; managed-call base URLs are
   operator-configured. Do not let candidates supply provider URLs.
 - Python dependency vulnerability scanning (`pip-audit`) remains unverified in
