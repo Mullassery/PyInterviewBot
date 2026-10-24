@@ -13,6 +13,8 @@ use ai_client::AiClient;
 use session::{SessionConfig, DEFAULT_MAX_UTTERANCE_BYTES};
 use tracing_subscriber::EnvFilter;
 use vad::DEFAULT_SILENCE_MS_TO_END_TURN;
+#[cfg(feature = "local-neural")]
+use voice_runtime::NeuralEngine;
 use voice_runtime::{
     EngineCatalog, ManagedCallClient, ManagedCallConfig, ManagedCallWorkflow, MockSpeechEngine,
     SpeechStudio, StudioConfig, WebhookVerifier,
@@ -57,12 +59,32 @@ async fn main() {
         max_utterance_bytes: env_usize("GATEWAY_MAX_UTTERANCE_BYTES", DEFAULT_MAX_UTTERANCE_BYTES),
     };
 
-    let engines =
-        Arc::new(EngineCatalog::new("mock").register(Arc::new(MockSpeechEngine::default())));
+    let requested_engine = std::env::var("VOICE_ENGINE").unwrap_or_else(|_| "mock".to_string());
+    let mut engines = EngineCatalog::new(requested_engine.clone())
+        .register(Arc::new(MockSpeechEngine::default()));
+    #[cfg(feature = "local-neural")]
+    {
+        match NeuralEngine::from_env() {
+            Ok(Some(engine)) => {
+                tracing::info!(requested = %requested_engine, "registered neural speech engine");
+                engines = engines.register(Arc::new(engine));
+            }
+            Ok(None) => {}
+            Err(error) => tracing::warn!(%error, "neural speech engine not registered"),
+        }
+    }
+    if engines.engine(&requested_engine).is_none() {
+        tracing::warn!(
+            requested = %requested_engine,
+            "requested speech engine is unavailable; falling back to mock"
+        );
+        engines = engines.with_default("mock");
+    }
+    let engines = Arc::new(engines);
     let studio = Arc::new(SpeechStudio::new(
         engines
             .default_engine()
-            .expect("mock engine is registered by default"),
+            .expect("fallback mock engine is registered"),
         StudioConfig::default(),
     ));
     let managed_config = ManagedCallConfig::from_env();

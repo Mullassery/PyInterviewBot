@@ -32,3 +32,6 @@ ai-service/models/*.onnx.json
 .env.local
 
 graphify-out/
+
+# Local neural-smoke artifact
+neural_smoke.wav

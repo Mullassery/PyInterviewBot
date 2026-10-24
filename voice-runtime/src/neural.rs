@@ -22,6 +22,7 @@ const ASR_SAMPLE_RATE: u32 = 16_000;
 struct NeuralPaths {
     tts_model: PathBuf,
     tts_tokens: PathBuf,
+    tts_lexicon: Option<PathBuf>,
     asr_encoder: PathBuf,
     asr_decoder: PathBuf,
     asr_tokens: PathBuf,
@@ -37,6 +38,7 @@ impl NeuralPaths {
         let get = |key: &str| std::env::var(key).ok().filter(|value| !value.is_empty());
         let tts_model = get("NEURAL_TTS_MODEL");
         let tts_tokens = get("NEURAL_TTS_TOKENS");
+        let tts_lexicon = get("NEURAL_TTS_LEXICON");
         let asr_encoder = get("NEURAL_ASR_ENCODER");
         let asr_decoder = get("NEURAL_ASR_DECODER");
         let asr_tokens = get("NEURAL_ASR_TOKENS");
@@ -71,6 +73,7 @@ impl NeuralPaths {
         let paths = Self {
             tts_model: PathBuf::from(tts_model.expect("checked")),
             tts_tokens: PathBuf::from(tts_tokens.expect("checked")),
+            tts_lexicon: tts_lexicon.map(PathBuf::from),
             asr_encoder: PathBuf::from(asr_encoder.expect("checked")),
             asr_decoder: PathBuf::from(asr_decoder.expect("checked")),
             asr_tokens: PathBuf::from(asr_tokens.expect("checked")),
@@ -100,12 +103,16 @@ impl NeuralPaths {
 
     fn validate(&self) -> Result<(), StudioError> {
         for path in [
-            &self.tts_model,
-            &self.tts_tokens,
-            &self.asr_encoder,
-            &self.asr_decoder,
-            &self.asr_tokens,
-        ] {
+            Some(&self.tts_model),
+            Some(&self.tts_tokens),
+            self.tts_lexicon.as_ref(),
+            Some(&self.asr_encoder),
+            Some(&self.asr_decoder),
+            Some(&self.asr_tokens),
+        ]
+        .into_iter()
+        .flatten()
+        {
             if !path.is_file() {
                 return Err(StudioError::EngineUnavailable(format!(
                     "model file not found: {}",
@@ -136,6 +143,10 @@ impl NeuralEngine {
         tts_config.model.vits = OfflineTtsVitsModelConfig {
             model: Some(paths.tts_model.to_string_lossy().into_owned()),
             tokens: Some(paths.tts_tokens.to_string_lossy().into_owned()),
+            lexicon: paths
+                .tts_lexicon
+                .as_ref()
+                .map(|path| path.to_string_lossy().into_owned()),
             ..Default::default()
         };
         tts_config.model.num_threads = paths.num_threads;

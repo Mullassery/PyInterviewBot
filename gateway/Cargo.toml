@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+local-neural = ["voice-runtime/local-neural"]
+
 [dependencies]
 axum = { version = "0.8.9", features = ["ws"] }
 bytes = "1.12.1"
