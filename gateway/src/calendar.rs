@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::warn;
 
+use crate::audit::record_admin;
 use crate::ws_handler::{authorized, AppState};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -496,9 +497,13 @@ async fn create_event(
             .into_response();
     };
     match calendar.create_event(&request).await {
-        Ok(event) => (StatusCode::CREATED, Json(event)).into_response(),
+        Ok(event) => {
+            record_admin(&state, "calendar.create", &event.event_id, "success", "");
+            (StatusCode::CREATED, Json(event)).into_response()
+        }
         Err(error) => {
             warn!(%error, "calendar event creation failed");
+            record_admin(&state, "calendar.create", "unknown", "failure", &error);
             (StatusCode::BAD_GATEWAY, Json(json!({"error": error}))).into_response()
         }
     }

@@ -64,6 +64,7 @@ pub struct AppState {
     pub twilio: Option<Arc<crate::twilio::TwilioConfig>>,
     pub scheduler: Option<crate::scheduler::SchedulerStore>,
     pub calendar: Option<std::sync::Arc<crate::calendar::CalendarClient>>,
+    pub audit: Option<std::sync::Arc<crate::audit::AuditStore>>,
 }
 
 pub(crate) fn authorized(
@@ -91,6 +92,7 @@ pub fn router(state: AppState) -> Router {
         .merge(crate::scheduler::router())
         .merge(crate::calendar::router())
         .merge(crate::reminders::router())
+        .merge(crate::audit::router())
         .with_state(state)
 }
 

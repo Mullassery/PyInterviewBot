@@ -27,6 +27,7 @@ use serde_json::{json, Value};
 use sha1::{Digest, Sha1};
 use tracing::{info, warn};
 
+use crate::audit::{record_admin, record_webhook};
 use crate::ws_handler::{authorized, AppState};
 
 const CHANNEL: &str = "twilio_voice";
@@ -384,6 +385,7 @@ fn verify_request(
     let url = config.canonical_url(path_and_query);
     if !config.verify(headers, &url, &params) {
         warn!(path = path_and_query, "invalid Twilio signature");
+        record_webhook(state, path_and_query, "auth_failed");
         return None;
     }
     let _ = state;
@@ -643,11 +645,18 @@ async fn create_call(
         .await;
     match response {
         Ok(response) if response.status().is_success() => match response.json::<Value>().await {
-            Ok(value) => (
-                StatusCode::CREATED,
-                Json(json!({"call_sid": value.get("sid").cloned()})),
-            )
-                .into_response(),
+            Ok(value) => {
+                let sid = value
+                    .get("sid")
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown");
+                record_admin(&state, "twilio.call", sid, "success", "");
+                (
+                    StatusCode::CREATED,
+                    Json(json!({"call_sid": value.get("sid").cloned()})),
+                )
+                    .into_response()
+            }
             Err(error) => (
                 StatusCode::BAD_GATEWAY,
                 Json(json!({"error": error.to_string()})),
@@ -1032,7 +1041,10 @@ async fn create_message(
         return unavailable();
     };
     match config.send_message(&request).await {
-        Ok(sid) => (StatusCode::CREATED, Json(json!({"sid": sid}))).into_response(),
+        Ok(sid) => {
+            record_admin(&state, "twilio.message", &sid, "success", "");
+            (StatusCode::CREATED, Json(json!({"sid": sid}))).into_response()
+        }
         Err(error) => (StatusCode::BAD_GATEWAY, Json(json!({"error": error}))).into_response(),
     }
 }

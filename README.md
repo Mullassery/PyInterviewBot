@@ -470,6 +470,20 @@ Available templates: `GET /templates`. Reports are decision-support only, always
 require human review, and do not evaluate accent, attractiveness, emotion,
 personality, protected traits, or unrelated communication style.
 
+### Report exports
+
+```bash
+# markdown | html | csv | json
+curl -H "X-API-Key: change-me" -o report.md \
+  "http://127.0.0.1:8000/sessions/<id>/report/export?format=markdown"
+curl -H "X-API-Key: change-me" -o report.html \
+  "http://127.0.0.1:8000/sessions/<id>/report/export?format=html"
+```
+
+HTML exports escape all candidate/model text. Exports include rubric evidence,
+candidate quotes, model-inference notes, human review decisions, uncertainty, and
+limitations. No hire/no-hire recommendation is generated.
+
 ## Resume/JD parsing and rubrics
 
 The interview engine is no longer limited to the seeded demo claim. The

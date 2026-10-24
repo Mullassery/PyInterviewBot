@@ -45,6 +45,16 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
 - Scheduler `twilio_message` action.
 - Locally mock-tested SMS, WhatsApp, and call requests.
 
+### Added (report generation and audit trail)
+
+- Deterministic report renderers for Markdown, HTML, CSV, and JSON over the
+  evidence-linked report.
+- `GET /sessions/{id}/report/export?format=markdown|html|csv|json` with
+  attachment headers and `no-store` caching; HTML escapes candidate/model text.
+- Durable gateway audit trail (`GET /audit`) for schedule, reminder, calendar,
+  Twilio message/call, and webhook authentication events.
+- Python tests cover markdown/HTML/CSV/JSON exports and XSS escaping.
+
 ### Added (interview reminders)
 
 - `POST /reminders` creates idempotent WhatsApp/SMS/voice reminders at

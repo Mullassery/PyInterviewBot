@@ -30,10 +30,10 @@ Companion documents:
 | `cargo fmt --check` | pass |
 | `cargo clippy --all-targets -- -D warnings` | pass |
 | `cargo clippy --all-targets --features local-neural -- -D warnings` | pass |
-| `cargo test` | **79 passed** (42 gateway + 32 runtime + 5 domain) |
+| `cargo test` | **80 passed** (43 gateway + 32 runtime + 5 domain) |
 | `cargo test -p voice-runtime --features local-neural` | **63 passed** |
 | `uv run ruff check .` | pass |
-| `uv run --group dev python -m pytest -q` | **30 passed** |
+| `uv run --group dev python -m pytest -q` | **35 passed** |
 | `npx tsc --noEmit` | pass |
 | `npm run build` | pass |
 | Live native gateway smoke | health, sessions, speech, chunked speech, transcription, recording export/clear/delete, auth rejection |
@@ -120,7 +120,8 @@ Pending:
 1. TLS/WSS termination and deployment reference.
 2. Shared/distributed rate limits and quotas.
 3. Tenant isolation and scoped recruiter/admin credentials.
-4. Audit log for destructive/review/export actions.
+4. Audit log for destructive/review/export actions. Gateway provider/scheduler
+   actions are covered; AI-service review/delete auditing remains pending.
 5. Consent/retention policy UI and disk-backed audio controls.
 6. Encryption at rest, key rotation, dependency vulnerability scanning.
 7. Load/latency/resource measurements and failure injection.

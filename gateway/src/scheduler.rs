@@ -22,6 +22,7 @@ use serde_json::{json, Value};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
+use crate::audit::record_admin;
 use crate::ws_handler::{authorized, AppState};
 
 const MAX_ATTEMPTS: i64 = 3;
@@ -393,7 +394,10 @@ async fn cancel(
             .into_response();
     };
     match store.cancel(&id) {
-        Ok(true) => Json(json!({"cancelled": true, "id": id})).into_response(),
+        Ok(true) => {
+            record_admin(&state, "schedule.cancel", &id, "success", "");
+            Json(json!({"cancelled": true, "id": id})).into_response()
+        }
         Ok(false) => (
             StatusCode::NOT_FOUND,
             Json(json!({"error": "pending schedule not found"})),

@@ -5,11 +5,21 @@ import os
 from contextlib import asynccontextmanager
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from . import agent, channels, db, documents, providers, rate_limit, report, templates
+from . import (
+    agent,
+    channels,
+    db,
+    documents,
+    providers,
+    rate_limit,
+    report,
+    reporting,
+    templates,
+)
 from .auth import hash_session_token, require_auth
 from .models import (
     ChannelMessageRequest,
@@ -245,6 +255,56 @@ async def session_report(session_id: UUID) -> SessionReport:
         transcript=await db.get_transcript(session_id),
         evidence=await db.get_evidence(session_id),
         reviews=await db.get_reviews(session_id),
+    )
+
+
+@app.get(
+    "/sessions/{session_id}/report/export",
+    dependencies=[Depends(require_auth)],
+)
+async def export_report(
+    session_id: UUID,
+    format: str = Query(default="markdown"),
+) -> Response:
+    key = format.strip().lower()
+    if key not in reporting.RENDERERS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"unsupported format '{format}'; use markdown, html, csv, or json",
+        )
+    row = await db.get_session_row(session_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"unknown session {session_id}")
+    try:
+        template = templates.get_template(row["template_id"])
+    except ValueError:
+        template = templates.get_template()
+    transcript = await db.get_transcript(session_id)
+    evidence = await db.get_evidence(session_id)
+    built = report.build_report(
+        session_id=session_id,
+        template=template,
+        transcript=transcript,
+        evidence=evidence,
+        reviews=await db.get_reviews(session_id),
+    )
+    summary = SessionSummary(
+        session_id=session_id,
+        template_id=row["template_id"] or "rag_architect",
+        resume_claim=row["resume_claim"],
+        is_complete=bool(row["is_complete"]),
+        transcript=transcript,
+        evidence=evidence,
+    )
+    renderer, media_type, extension = reporting.RENDERERS[key]
+    content = renderer(built, summary)
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="interview-report-{session_id}.{extension}"',
+            "Cache-Control": "no-store",
+        },
     )
 
 

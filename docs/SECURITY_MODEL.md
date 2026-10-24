@@ -59,8 +59,9 @@ gaps) and `docs/CAPABILITY_MATRIX.md` (provider/licence boundaries).
   disk retention policy or consent UI for that endpoint yet.
 - No SSRF-heavy URL fetching in the current paths; managed-call base URLs are
   operator-configured. Do not let candidates supply provider URLs.
-- Python dependency vulnerability scanning (`pip-audit`) remains unverified in
-  this environment.
+- `pip-audit` now reports no known vulnerabilities; CI runs dependency audits.
+- The gateway audit trail covers provider/scheduler/calendar/webhook actions.
+  AI-service reviewer corrections and deletion endpoints are not yet audited.
 - The live managed-call path is not exercised in CI; contract tests use a
   deterministic mock transport only.
 - Model licences and terms are not enforced in code; operators must verify
@@ -71,7 +72,8 @@ gaps) and `docs/CAPABILITY_MATRIX.md` (provider/licence boundaries).
 1. TLS/WSS termination and strict network policy.
 2. Session-scoped authorization (or per-tenant isolation) for transcript,
    evidence, report, review, and delete operations.
-3. Rate limits, request quotas, and audit logging for administrative actions.
+3. Rate limits, request quotas, and AI-service audit coverage for reviewer and
+   deletion actions.
 4. A documented retention policy and consent flow, including whether audio is
    ever enabled.
 5. Legal/privacy review for the target jurisdiction and a bias/validation study

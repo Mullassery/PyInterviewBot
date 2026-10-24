@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::warn;
 
+use crate::audit::record_admin;
 use crate::scheduler::{ScheduleAction, ScheduleRequest};
 use crate::ws_handler::{authorized, AppState};
 
@@ -178,6 +179,13 @@ async fn create_reminders(
             }
         }
     }
+    record_admin(
+        &state,
+        "reminders.create",
+        &request.interview_id,
+        "success",
+        &format!("{} schedules", created.len()),
+    );
     (
         StatusCode::CREATED,
         Json(json!({"created": created, "count": created.len()})),
