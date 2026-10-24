@@ -8,6 +8,8 @@
 pub mod events;
 pub mod managed_call;
 pub mod mock;
+#[cfg(feature = "local-neural")]
+pub mod neural;
 pub mod provider;
 pub mod runtime;
 pub mod state;
@@ -19,6 +21,8 @@ pub use managed_call::{
     ManagedCallWorkflow, NormalizedManagedEvent, WebhookAuth, WebhookVerifier,
 };
 pub use mock::MockVoiceProvider;
+#[cfg(feature = "local-neural")]
+pub use neural::NeuralEngine;
 pub use provider::{
     ProviderCapabilities, ProviderError, ProviderEvent, SessionConfig, VoiceProvider,
 };

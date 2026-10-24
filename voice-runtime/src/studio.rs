@@ -395,6 +395,11 @@ impl EngineCatalog {
         self.engines.get(name).cloned()
     }
 
+    pub fn with_default(mut self, name: impl Into<String>) -> Self {
+        self.default_engine = name.into();
+        self
+    }
+
     pub fn names(&self) -> Vec<String> {
         let mut names: Vec<String> = self.engines.keys().cloned().collect();
         names.sort();
