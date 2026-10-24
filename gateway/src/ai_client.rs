@@ -85,6 +85,8 @@ pub struct ChannelSessionResponse {
     pub session_id: Uuid,
     pub question_text: String,
     pub template_id: String,
+    #[serde(default)]
+    pub new_session: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -202,6 +204,22 @@ impl AiClient {
             .send()
             .await?;
         Ok(Self::check_status(resp).await?.json().await?)
+    }
+
+    pub async fn transcribe_media(
+        &self,
+        data: Vec<u8>,
+        suffix: &str,
+    ) -> Result<String, AiClientError> {
+        let resp = self
+            .request(reqwest::Method::POST, "/asr/transcribe-media")
+            .header("content-type", "application/octet-stream")
+            .header("x-filename-suffix", suffix)
+            .body(data)
+            .send()
+            .await?;
+        let parsed: TranscribeResponse = Self::check_status(resp).await?.json().await?;
+        Ok(parsed.transcript)
     }
 
     pub async fn health(&self) -> bool {

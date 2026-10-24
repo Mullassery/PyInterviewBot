@@ -229,6 +229,8 @@ pub fn router() -> Router<AppState> {
         .route("/channels/twilio/voice/stream", post(stream_twiml))
         .route("/channels/twilio/voice/media", get(media_upgrade))
         .route("/channels/twilio/voice/calls", post(create_call))
+        .route("/channels/whatsapp/inbound", post(whatsapp_inbound))
+        .route("/channels/whatsapp/status", post(whatsapp_status))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
 }
 
@@ -844,6 +846,175 @@ async fn media_socket(
     }
 }
 
+fn whatsapp_reply(text: &str) -> Response {
+    twiml(&format!("<Message>{}</Message>", escape(text)))
+}
+
+fn whatsapp_sender(value: &str) -> String {
+    value.strip_prefix("whatsapp:").unwrap_or(value).to_string()
+}
+
+fn allowed_media_url(value: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(value) else {
+        return false;
+    };
+    url.scheme() == "https"
+        && url.username().is_empty()
+        && url.password().is_none()
+        && matches!(
+            url.host_str(),
+            Some("api.twilio.com") | Some("media.twiliocdn.com")
+        )
+}
+
+async fn download_media(config: &TwilioConfig, url: &str) -> Result<Vec<u8>, String> {
+    if !allowed_media_url(url) {
+        return Err("media URL host is not allowed".to_string());
+    }
+    let Some(account_sid) = config.account_sid.as_deref() else {
+        return Err("TWILIO_ACCOUNT_SID is required".to_string());
+    };
+    let response = config
+        .http
+        .get(url)
+        .basic_auth(account_sid, Some(&config.auth_token))
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("media download returned {}", response.status()));
+    }
+    if response.content_length().unwrap_or(0) > 10 * 1024 * 1024 {
+        return Err("media exceeds 10 MiB".to_string());
+    }
+    let bytes = response.bytes().await.map_err(|error| error.to_string())?;
+    if bytes.len() > 10 * 1024 * 1024 {
+        return Err("media exceeds 10 MiB".to_string());
+    }
+    Ok(bytes.to_vec())
+}
+
+async fn whatsapp_inbound(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    uri: axum::http::Uri,
+    body: Bytes,
+) -> Response {
+    let Some(config) = twilio_for(&state) else {
+        return unavailable();
+    };
+    let Some(params) = verify_request(
+        &config,
+        &state,
+        &headers,
+        uri.path_and_query()
+            .map(|value| value.as_str())
+            .unwrap_or(uri.path()),
+        &body,
+    ) else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
+    let sender = whatsapp_sender(&param(&params, "From"));
+    if sender.is_empty() {
+        return whatsapp_reply("We could not identify this WhatsApp account.");
+    }
+    let started = match state
+        .ai
+        .start_channel_session("whatsapp_text", &sender, None)
+        .await
+    {
+        Ok(session) => session,
+        Err(error) => {
+            warn!(?error, "WhatsApp session start failed");
+            return whatsapp_reply(
+                "We are having trouble starting the interview. Please try again later.",
+            );
+        }
+    };
+    if started.new_session {
+        return whatsapp_reply(&started.question_text);
+    }
+
+    let event_id = {
+        let message_sid = param(&params, "MessageSid");
+        if !message_sid.is_empty() {
+            message_sid
+        } else {
+            let mut hasher = Sha1::new();
+            hasher.update(&body);
+            format!("wa:{:x}", hasher.finalize())
+        }
+    };
+    let text = param(&params, "Body");
+    let media_url = param(&params, "MediaUrl0");
+    let answer = if !media_url.is_empty() {
+        let suffix = if param(&params, "MediaContentType0").contains("ogg") {
+            ".ogg"
+        } else {
+            ".bin"
+        };
+        match download_media(&config, &media_url).await {
+            Ok(bytes) => match state.ai.transcribe_media(bytes, suffix).await {
+                Ok(transcript) => transcript,
+                Err(error) => {
+                    warn!(?error, "WhatsApp media transcription failed");
+                    return whatsapp_reply("I could not process that voice note. Please send it again or reply with text.");
+                }
+            },
+            Err(error) => {
+                warn!(%error, "WhatsApp media download rejected");
+                return whatsapp_reply("I could not download that voice note. Please send it again or reply with text.");
+            }
+        }
+    } else {
+        text
+    };
+    if answer.trim().is_empty() {
+        return whatsapp_reply("Please reply with text or a voice note.");
+    }
+    match state
+        .ai
+        .channel_message("whatsapp_text", &sender, &event_id, &answer)
+        .await
+    {
+        Ok(response) => whatsapp_reply(&response.ai_text),
+        Err(error) => {
+            warn!(?error, "WhatsApp interview turn failed");
+            whatsapp_reply(
+                "We are having trouble continuing the interview. Please try again later.",
+            )
+        }
+    }
+}
+
+async fn whatsapp_status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    uri: axum::http::Uri,
+    body: Bytes,
+) -> Response {
+    let Some(config) = twilio_for(&state) else {
+        return unavailable();
+    };
+    let Some(params) = verify_request(
+        &config,
+        &state,
+        &headers,
+        uri.path_and_query()
+            .map(|value| value.as_str())
+            .unwrap_or(uri.path()),
+        &body,
+    ) else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
+    info!(
+        message_sid = %param(&params, "MessageSid"),
+        status = %param(&params, "MessageStatus"),
+        "WhatsApp message status"
+    );
+    StatusCode::NO_CONTENT.into_response()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -911,6 +1082,23 @@ mod tests {
         let clear: Value = serde_json::from_str(&clear_message("MZ1")).unwrap();
         assert_eq!(clear["event"], "clear");
         assert_eq!(clear["streamSid"], "MZ1");
+    }
+
+    #[test]
+    fn whatsapp_sender_and_media_policy_are_strict() {
+        assert_eq!(whatsapp_sender("whatsapp:+15551234567"), "+15551234567");
+        assert_eq!(whatsapp_sender("+15551234567"), "+15551234567");
+        assert!(allowed_media_url("https://api.twilio.com/2010-04-01/foo"));
+        assert!(allowed_media_url("https://media.twiliocdn.com/foo"));
+        assert!(!allowed_media_url("http://api.twilio.com/foo"));
+        assert!(!allowed_media_url("https://evil.example/foo"));
+        assert!(!allowed_media_url("https://user:pass@api.twilio.com/foo"));
+    }
+
+    #[test]
+    fn whatsapp_reply_escapes_message_text() {
+        let response = whatsapp_reply("<hello & goodbye>");
+        assert!(response.status().is_success());
     }
 
     #[test]

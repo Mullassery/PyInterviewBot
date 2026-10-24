@@ -35,6 +35,17 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
 - `/asr/transcribe` payload cap (`PYINTERVIEWBOT_MAX_AUDIO_BYTES`, 413 on
   overflow), plus `/providers` and `/templates` discovery endpoints.
 
+### Added (Phase 9 WhatsApp)
+
+- Signed WhatsApp inbound text webhook and delivery/read status callback.
+- TwiML replies through the channel-neutral interview API with first-message
+  opening question and idempotent follow-up turns.
+- WhatsApp voice-note intake: Twilio-host/HTTPS allowlist, Basic-auth media
+  download, 10 MiB cap, and `/asr/transcribe-media`.
+- Locally signed webhook smoke tests, including SSRF rejection.
+- WhatsApp Business approval, templates/messaging windows, outbound API messages,
+  status persistence, and live calling remain pending.
+
 ### Added (Phase 8 Twilio voice)
 
 - Twilio Programmable Voice adapter: HMAC-SHA1 signature verification, signed

@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import asyncio
 import os
+import tempfile
+from pathlib import Path
 
 import numpy as np
 from faster_whisper import WhisperModel
@@ -45,3 +47,20 @@ def _transcribe_sync(pcm16_16khz: bytes) -> str:
 async def transcribe(pcm16_16khz: bytes) -> str:
     # faster-whisper is synchronous/CPU-bound; keep it off the event loop.
     return await asyncio.to_thread(_transcribe_sync, pcm16_16khz)
+
+
+def _transcribe_media_sync(data: bytes, suffix: str) -> str:
+    if not data:
+        return ""
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as handle:
+        handle.write(data)
+        path = handle.name
+    try:
+        segments, _info = _get_model().transcribe(path, language="en", vad_filter=True)
+        return " ".join(segment.text.strip() for segment in segments).strip()
+    finally:
+        Path(path).unlink(missing_ok=True)
+
+
+async def transcribe_media(data: bytes, suffix: str = ".ogg") -> str:
+    return await asyncio.to_thread(_transcribe_media_sync, data, suffix)

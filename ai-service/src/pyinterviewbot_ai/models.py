@@ -165,6 +165,7 @@ class ChannelSessionResponse(BaseModel):
     session_id: UUID
     template_id: str
     question_text: str
+    new_session: bool = False
 
 
 class ChannelMessageRequest(BaseModel):

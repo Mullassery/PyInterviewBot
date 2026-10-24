@@ -71,8 +71,8 @@ This platform:                Listen → Understand → Probe → Verify → Ass
 | Channel-neutral session/message API | Implemented and tested |
 | Twilio voice (inbound/outbound, gather/transcribe) | **Implemented, not live-verified** |
 | Twilio Media Streams real-time audio | **Implemented, not live-verified** |
-| WhatsApp text interviews | **Not implemented** |
-| WhatsApp voice-note interviews | **Not implemented** |
+| WhatsApp text interviews | **Implemented, not live-verified** |
+| WhatsApp voice-note interviews | **Implemented, not live-verified** |
 | WhatsApp live voice calls | **Blocked / unverified** |
 | Microsoft Teams scheduling | **Not implemented** |
 | Microsoft Teams transcript evaluation | **Not implemented** |
@@ -329,6 +329,17 @@ HTTPS callback URL; only signed mock-engine webhooks have been verified locally.
 Media Streams are implemented and locally smoke-tested. Live call validation and
 provider-specific media-limit behavior remain unverified.
 
+WhatsApp support reuses the Twilio signature/media configuration:
+
+- `POST /channels/whatsapp/inbound` — signed text and voice-note webhook.
+- `POST /channels/whatsapp/status` — signed delivery/read status callback.
+
+Voice notes are downloaded only from allowed Twilio hosts over HTTPS, capped at
+10 MiB, and transcribed via the configured ASR provider. The first inbound
+message receives the opening question; subsequent messages advance the shared
+interview. Messaging-window/template enforcement and WhatsApp live calling remain
+pending.
+
 ## Channel-neutral interview API
 
 Channel adapters share one interview engine and one durable session mapping:
@@ -379,6 +390,17 @@ idempotent event ID. Live calls require an approved Twilio account and public
 HTTPS callback URL; only signed mock-engine webhooks have been verified locally.
 Media Streams are implemented and locally smoke-tested. Live call validation and
 provider-specific media-limit behavior remain unverified.
+
+WhatsApp support reuses the Twilio signature/media configuration:
+
+- `POST /channels/whatsapp/inbound` — signed text and voice-note webhook.
+- `POST /channels/whatsapp/status` — signed delivery/read status callback.
+
+Voice notes are downloaded only from allowed Twilio hosts over HTTPS, capped at
+10 MiB, and transcribed via the configured ASR provider. The first inbound
+message receives the opening question; subsequent messages advance the shared
+interview. Messaging-window/template enforcement and WhatsApp live calling remain
+pending.
 
 ## Channel-neutral interview API
 

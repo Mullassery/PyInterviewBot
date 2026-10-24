@@ -123,4 +123,19 @@ __all__ = [
     "get_tts",
     "provider_status",
     "reset_providers",
+    "transcribe_media",
 ]
+
+
+async def transcribe_media(data: bytes, suffix: str = ".ogg") -> str:
+    provider = _select("asr")
+    if provider == "mock":
+        from .mock import MockSpeechToText
+
+        result = await MockSpeechToText().transcribe(data)
+        return result.text
+    if provider == "local":
+        from .. import asr
+
+        return await asr.transcribe_media(data, suffix)
+    raise ValueError(f"ASR provider '{provider}' does not support media transcription")

@@ -68,6 +68,7 @@ async def start_or_resume(
             session_id=session_id,
             template_id=row["template_id"] or "rag_architect",
             question_text=await _last_question(session_id),
+            new_session=False,
         )
 
     session_id, _question, template, _token = await agent.start_session(template_id)
@@ -86,6 +87,7 @@ async def start_or_resume(
         session_id=session_id,
         template_id=template,
         question_text=await _last_question(session_id),
+        new_session=True,
     )
 
 

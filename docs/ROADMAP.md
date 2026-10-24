@@ -30,7 +30,7 @@ Companion documents:
 | `cargo fmt --check` | pass |
 | `cargo clippy --all-targets -- -D warnings` | pass |
 | `cargo clippy --all-targets --features local-neural -- -D warnings` | pass |
-| `cargo test` | **67 passed** (30 gateway + 32 runtime + 5 domain) |
+| `cargo test` | **69 passed** (32 gateway + 32 runtime + 5 domain) |
 | `cargo test -p voice-runtime --features local-neural` | **63 passed** |
 | `uv run ruff check .` | pass |
 | `uv run --group dev python -m pytest -q` | **30 passed** |
@@ -216,8 +216,27 @@ performed with an approved account or explicitly reported NOT RUN.
 
 ## Phase 9 — WhatsApp
 
-**Status: Pending**  
+**Status: Partial — implemented, not live-verified**  
 **Live status: Blocked by WhatsApp Business approval/sender configuration**
+
+Implemented:
+
+- Signed inbound text webhook and delivery/read status callback.
+- Twilio-form parsing, `whatsapp:` identity normalization, TwiML replies.
+- First-message opening question and idempotent subsequent turns via the shared
+  channel API.
+- Voice-note intake with HTTPS/host allowlisting, Twilio Basic auth, 10 MiB cap,
+  and media transcription (`/asr/transcribe-media`).
+- Locally signed webhook smoke tests, including SSRF rejection.
+
+Pending:
+
+- WhatsApp Business account/sender/template approval and live validation.
+- Messaging-window and template enforcement.
+- Outbound API/template messages and opt-out management.
+- Durable status-callback event persistence.
+- Distinct voice-note channel metadata/session continuity review.
+- WhatsApp live calling capability verification (below).
 
 Verified provider starting points:
 - https://www.twilio.com/docs/whatsapp
@@ -325,8 +344,8 @@ sufficient. Do not implement a text-only bot and call it a live interviewer.
 | Channel-neutral session/message API | Implemented and tested | `/channels/{channel}/sessions` and `/messages` |
 | Twilio outbound/inbound voice | Implemented, not live-verified | Signed webhook + TwiML smoke; live account needed |
 | Twilio real-time media | Implemented, not live-verified | Signed TwiML + WebSocket media smoke; no live call |
-| WhatsApp text interviews | Pending | No adapter; WhatsApp Business approval needed |
-| WhatsApp voice notes | Pending | No media pipeline; approval needed |
+| WhatsApp text interviews | Implemented, not live-verified | Signed webhook smoke; approval needed |
+| WhatsApp voice notes | Implemented, not live-verified | Media/transcription path tested with mocks; live media untested |
 | WhatsApp live voice | Blocked / unverified | Provider capability and approval must be confirmed |
 | Teams scheduling | Pending | No Graph client; tenant/admin consent needed |
 | Teams transcript evaluation | Pending | No Graph/transcript client; meeting policy needed |

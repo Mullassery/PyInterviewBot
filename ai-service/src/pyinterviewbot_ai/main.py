@@ -307,6 +307,23 @@ async def transcribe(request: Request) -> TranscribeResponse:
     return TranscribeResponse(transcript=text.text)
 
 
+@app.post(
+    "/asr/transcribe-media",
+    response_model=TranscribeResponse,
+    dependencies=[Depends(require_auth)],
+)
+async def transcribe_media(request: Request) -> TranscribeResponse:
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > MAX_AUDIO_BYTES:
+        raise HTTPException(status_code=413, detail="audio payload too large")
+    body = await request.body()
+    if len(body) > MAX_AUDIO_BYTES:
+        raise HTTPException(status_code=413, detail="audio payload too large")
+    suffix = request.headers.get("x-filename-suffix", ".ogg")
+    text = await providers.transcribe_media(body, suffix)
+    return TranscribeResponse(transcript=text)
+
+
 @app.post("/tts/synthesize", dependencies=[Depends(require_auth)])
 async def synthesize(req: SynthesizeRequest) -> StreamingResponse:
     provider = providers.get_tts()
