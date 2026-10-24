@@ -172,8 +172,26 @@ adapter code exists yet.
 
 ## Phase 8 — Twilio voice
 
-**Status: Pending**  
+**Status: Partial — implemented, not live-verified**  
 **Live status: Blocked by Twilio account/credentials and a public HTTPS callback URL**
+
+Implemented:
+
+- `X-Twilio-Signature` HMAC-SHA1 verification with canonical public URL and
+  sorted form parameters.
+- Signed inbound call, gather-result turn, and call-status webhooks.
+- TwiML `<Say>`/`<Gather>` loop through the channel-neutral interview API.
+- Deterministic idempotency key from CallSid + speech text.
+- Outbound call creation against the Twilio REST API, with tokenized start URL.
+- Unit tests for signatures, form parsing, TwiML escaping, and start tokens.
+- Signed end-to-end local smoke against the mock interview engine.
+
+Pending:
+
+- Twilio Media Streams real-time audio with barge-in/backpressure.
+- Live Twilio account validation and callback URL registration.
+- Durable call-lifecycle event persistence beyond status logging.
+- Recording/consent configuration for Twilio.`
 
 Verified provider starting points:
 - https://www.twilio.com/docs/voice/api
@@ -305,7 +323,7 @@ sufficient. Do not implement a text-only bot and call it a live interviewer.
 | Managed-call workflow | Implemented, not live-verified | Mock HTTP transport tests only |
 | Shared channel-independent domain | Implemented and tested | Rust contracts + SQLite mapping/idempotency + cross-channel tests |
 | Channel-neutral session/message API | Implemented and tested | `/channels/{channel}/sessions` and `/messages` |
-| Twilio outbound/inbound voice | Pending | No adapter; Twilio account/HTTPS callback needed |
+| Twilio outbound/inbound voice | Implemented, not live-verified | Signed webhook + TwiML smoke; live account needed |
 | Twilio real-time media | Pending | No media-stream adapter |
 | WhatsApp text interviews | Pending | No adapter; WhatsApp Business approval needed |
 | WhatsApp voice notes | Pending | No media pipeline; approval needed |
@@ -322,7 +340,7 @@ sufficient. Do not implement a text-only bot and call it a live interviewer.
 
 1. **Provider webhook signature/replay framework** with Twilio implementation.
 2. **SSRF-safe media-fetch policy** and safe audio validation.
-3. **Twilio gather/transcribe adapter** (Phase 8).
+3. **Twilio Media Streams real-time loop** and live account validation.
 
 ## P1 — first real channel slices
 

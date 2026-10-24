@@ -61,6 +61,7 @@ pub struct AppState {
     pub studio: Arc<SpeechStudio>,
     pub engines: Arc<EngineCatalog>,
     pub managed_call: Option<Arc<ManagedCallWorkflow>>,
+    pub twilio: Option<Arc<crate::twilio::TwilioConfig>>,
 }
 
 pub(crate) fn authorized(
@@ -84,6 +85,7 @@ pub fn router(state: AppState) -> Router {
         .route("/ws/interview", get(ws_upgrade))
         .route("/ready", get(ready))
         .merge(crate::native_voice::router())
+        .merge(crate::twilio::router())
         .with_state(state)
 }
 

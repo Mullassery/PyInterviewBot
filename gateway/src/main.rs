@@ -2,6 +2,7 @@ mod ai_client;
 mod native_voice;
 mod session;
 mod state_machine;
+mod twilio;
 mod vad;
 mod ws_handler;
 
@@ -87,6 +88,7 @@ async fn main() {
             .expect("fallback mock engine is registered"),
         StudioConfig::default(),
     ));
+    let twilio = twilio::TwilioConfig::from_env().map(Arc::new);
     let managed_config = ManagedCallConfig::from_env();
     let managed_call = ManagedCallClient::new(managed_config.clone())
         .ok()
@@ -110,6 +112,7 @@ async fn main() {
         studio,
         engines,
         managed_call,
+        twilio,
     };
 
     let app = ws_handler::router(state).route("/health", axum::routing::get(|| async { "ok" }));

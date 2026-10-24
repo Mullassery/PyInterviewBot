@@ -69,7 +69,8 @@ This platform:                Listen → Understand → Probe → Verify → Ass
 | Existing web voice interview | Implemented and tested |
 | Native Rust speech studio / local neural TTS+ASR | Implemented and tested with operator-supplied models |
 | Channel-neutral session/message API | Implemented and tested |
-| Twilio voice (inbound/outbound, gather/transcribe, Media Streams) | **Not implemented** |
+| Twilio voice (inbound/outbound, gather/transcribe) | **Implemented, not live-verified** |
+| Twilio Media Streams real-time audio | **Not implemented** |
 | WhatsApp text interviews | **Not implemented** |
 | WhatsApp voice-note interviews | **Not implemented** |
 | WhatsApp live voice calls | **Blocked / unverified** |
@@ -298,6 +299,30 @@ time, and de-duplicated before normalization. Transport retries use
 `/native/voice/engines` lists registered speech engines, default selection, and
 health.
 
+## Twilio voice configuration
+
+The gateway exposes Twilio Programmable Voice webhooks for gather/transcribe
+interviews:
+
+```bash
+TWILIO_AUTH_TOKEN=... TWILIO_PUBLIC_BASE_URL=https://your-public-host TWILIO_ACCOUNT_SID=AC... TWILIO_FROM_NUMBER=+15550001111 cargo run -p gateway
+```
+
+Routes:
+
+- `POST /channels/twilio/voice/inbound` — signed inbound call webhook.
+- `POST /channels/twilio/voice/turn` — signed gather result webhook.
+- `POST /channels/twilio/voice/status` — signed call lifecycle callback.
+- `POST /channels/twilio/voice/calls` — authenticated outbound call creation
+  (`{"to":"+1555...","external_id":"candidate-1"}`).
+- `POST /channels/twilio/voice/start` — tokenized TwiML entry for outbound calls.
+
+Signatures use the documented `X-Twilio-Signature` HMAC-SHA1 scheme over the
+public URL plus sorted POST parameters. Call SID and speech text form the
+idempotent event ID. Live calls require an approved Twilio account and public
+HTTPS callback URL; only signed mock-engine webhooks have been verified locally.
+Media Streams are not implemented.
+
 ## Channel-neutral interview API
 
 Channel adapters share one interview engine and one durable session mapping:
@@ -318,6 +343,30 @@ Supported channel identifiers: `web`, `twilio_voice`, `whatsapp_text`,
 `whatsapp_voice_note`, `teams`. The shared domain and durable mapping are
 implemented; provider webhook adapters for Twilio, WhatsApp, and Teams are still
 pending. See [`docs/ROADMAP.md`](docs/ROADMAP.md).
+
+## Twilio voice configuration
+
+The gateway exposes Twilio Programmable Voice webhooks for gather/transcribe
+interviews:
+
+```bash
+TWILIO_AUTH_TOKEN=... TWILIO_PUBLIC_BASE_URL=https://your-public-host TWILIO_ACCOUNT_SID=AC... TWILIO_FROM_NUMBER=+15550001111 cargo run -p gateway
+```
+
+Routes:
+
+- `POST /channels/twilio/voice/inbound` — signed inbound call webhook.
+- `POST /channels/twilio/voice/turn` — signed gather result webhook.
+- `POST /channels/twilio/voice/status` — signed call lifecycle callback.
+- `POST /channels/twilio/voice/calls` — authenticated outbound call creation
+  (`{"to":"+1555...","external_id":"candidate-1"}`).
+- `POST /channels/twilio/voice/start` — tokenized TwiML entry for outbound calls.
+
+Signatures use the documented `X-Twilio-Signature` HMAC-SHA1 scheme over the
+public URL plus sorted POST parameters. Call SID and speech text form the
+idempotent event ID. Live calls require an approved Twilio account and public
+HTTPS callback URL; only signed mock-engine webhooks have been verified locally.
+Media Streams are not implemented.
 
 ## Channel-neutral interview API
 

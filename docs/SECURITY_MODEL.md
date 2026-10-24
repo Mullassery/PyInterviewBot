@@ -39,7 +39,7 @@ gaps) and `docs/CAPABILITY_MATRIX.md` (provider/licence boundaries).
 | Native studio recording | Explicit caller action only; in-memory, size-bounded, clearable, and dropped on session close |
 | Biased scoring | Report policy excludes accent, attractiveness, emotion, personality, protected traits; human review required |
 | Provider secrets in browser | Provider calls are server-side only; the managed-call client reads its private key on the server |
-| Webhook spoofing | Optional constant-time Bearer/HMAC verification |
+| Webhook spoofing | Constant-time provider signature checks (Twilio HMAC-SHA1; managed-call Bearer/HMAC) |
 | Prompt/model output treating as truth | Evidence notes flagged as model inference; transcript quotes are the observed evidence |
 | Unknown provider misconfiguration | Registry fails closed with a clear error |
 

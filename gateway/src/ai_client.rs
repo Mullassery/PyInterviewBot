@@ -80,6 +80,35 @@ struct SynthesizeRequest {
     text: String,
 }
 
+#[derive(Debug, Deserialize, Clone)]
+pub struct ChannelSessionResponse {
+    pub session_id: Uuid,
+    pub question_text: String,
+    pub template_id: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct ChannelMessageResponse {
+    pub ai_text: String,
+    pub is_complete: bool,
+    #[serde(default)]
+    pub duplicate: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct ChannelSessionRequest {
+    external_id: String,
+    template_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct ChannelMessageRequest {
+    external_id: String,
+    event_id: String,
+    text: String,
+    template_id: Option<String>,
+}
+
 impl AiClient {
     pub fn new(base_url: impl Into<String>) -> Self {
         Self::with_timeout(base_url, AI_SERVICE_TIMEOUT)
@@ -126,6 +155,49 @@ impl AiClient {
             .json(&StartSessionRequest {
                 resume_seed: true,
                 template_id: self.template_id.clone(),
+            })
+            .send()
+            .await?;
+        Ok(Self::check_status(resp).await?.json().await?)
+    }
+
+    pub async fn start_channel_session(
+        &self,
+        channel: &str,
+        external_id: &str,
+        template_id: Option<&str>,
+    ) -> Result<ChannelSessionResponse, AiClientError> {
+        let resp = self
+            .request(
+                reqwest::Method::POST,
+                &format!("/channels/{channel}/sessions"),
+            )
+            .json(&ChannelSessionRequest {
+                external_id: external_id.to_string(),
+                template_id: template_id.map(str::to_string),
+            })
+            .send()
+            .await?;
+        Ok(Self::check_status(resp).await?.json().await?)
+    }
+
+    pub async fn channel_message(
+        &self,
+        channel: &str,
+        external_id: &str,
+        event_id: &str,
+        text: &str,
+    ) -> Result<ChannelMessageResponse, AiClientError> {
+        let resp = self
+            .request(
+                reqwest::Method::POST,
+                &format!("/channels/{channel}/messages"),
+            )
+            .json(&ChannelMessageRequest {
+                external_id: external_id.to_string(),
+                event_id: event_id.to_string(),
+                text: text.to_string(),
+                template_id: None,
             })
             .send()
             .await?;

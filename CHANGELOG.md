@@ -35,6 +35,14 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
 - `/asr/transcribe` payload cap (`PYINTERVIEWBOT_MAX_AUDIO_BYTES`, 413 on
   overflow), plus `/providers` and `/templates` discovery endpoints.
 
+### Added (Phase 8 Twilio voice)
+
+- Twilio Programmable Voice adapter: HMAC-SHA1 signature verification, signed
+  inbound/turn/status webhooks, TwiML `<Say>`/`<Gather>` interview loop,
+  deterministic idempotency keys, and authenticated outbound call creation.
+- Local signed-webhook smoke test against the mock interview engine.
+- Media Streams and live-account validation remain pending.
+
 ### Added (Phase 7 channel domain)
 
 - Rust `interview-domain` crate: channel/event/state contracts, illegal
