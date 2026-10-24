@@ -83,3 +83,36 @@ jobs:
 
       - name: build
         run: npm run build
+
+  security:
+    name: dependency audits
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo audit
+        uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: candidate-client/package-lock.json
+
+      - name: npm audit
+        working-directory: candidate-client
+        run: npm ci && npm audit --audit-level=high
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: pip-audit
+        working-directory: ai-service
+        run: uv sync --group dev && uvx pip-audit
