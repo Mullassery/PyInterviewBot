@@ -56,4 +56,26 @@ def hash_session_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-__all__ = ["API_KEY_ENV", "hash_session_token", "require_auth"]
+def session_token_matches(stored_hash: str, token: str | None) -> bool:
+    if not stored_hash:
+        return False
+    if not token:
+        return False
+    return hmac.compare_digest(hash_session_token(token), stored_hash)
+
+
+def session_token_required() -> bool:
+    return os.environ.get("PYINTERVIEWBOT_REQUIRE_SESSION_TOKEN", "").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+
+
+__all__ = [
+    "API_KEY_ENV",
+    "hash_session_token",
+    "require_auth",
+    "session_token_matches",
+    "session_token_required",
+]

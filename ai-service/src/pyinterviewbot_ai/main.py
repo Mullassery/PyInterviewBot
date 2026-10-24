@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hmac
 import os
+import re
 from contextlib import asynccontextmanager
 from uuid import UUID
 
@@ -18,6 +19,7 @@ from . import (
     rate_limit,
     report,
     reporting,
+    resume_policy,
     templates,
 )
 from .auth import hash_session_token, require_auth
@@ -26,6 +28,15 @@ from .models import (
     ChannelMessageResponse,
     ChannelSessionRequest,
     ChannelSessionResponse,
+    ComplianceCategoryUpdate,
+    ComplianceCategoryView,
+    CompliancePolicyResponse,
+    PrioritiesResponse,
+    PrioritySetting,
+    PriorityUpdateRequest,
+    ResumePolicyRequest,
+    ResumePolicyResponse,
+    ResumeResponse,
     ReviewRequest,
     SessionListItem,
     SessionReport,
@@ -255,6 +266,8 @@ async def session_report(session_id: UUID) -> SessionReport:
         transcript=await db.get_transcript(session_id),
         evidence=await db.get_evidence(session_id),
         reviews=await db.get_reviews(session_id),
+        priorities=await db.get_session_priorities(session_id),
+        is_complete=bool(row["is_complete"]),
     )
 
 
@@ -287,6 +300,8 @@ async def export_report(
         transcript=transcript,
         evidence=evidence,
         reviews=await db.get_reviews(session_id),
+        priorities=await db.get_session_priorities(session_id),
+        is_complete=bool(row["is_complete"]),
     )
     summary = SessionSummary(
         session_id=session_id,
@@ -306,6 +321,173 @@ async def export_report(
             "Cache-Control": "no-store",
         },
     )
+
+
+def _compliance_response(rows: list[dict]) -> CompliancePolicyResponse:
+    return CompliancePolicyResponse(
+        categories=[
+            ComplianceCategoryView(
+                id=row["category"],
+                label=row["label"],
+                description=row["description"],
+                enabled=row["enabled"],
+                patterns=row["patterns"],
+                updated_at=row.get("updated_at"),
+            )
+            for row in rows
+        ]
+    )
+
+
+@app.get(
+    "/sessions/{session_id}/resume-policy",
+    response_model=ResumePolicyResponse,
+    dependencies=[Depends(require_auth)],
+)
+async def get_resume_policy(session_id: UUID) -> ResumePolicyResponse:
+    row = await db.get_session_row(session_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"unknown session {session_id}")
+    return resume_policy.policy_for(row)
+
+
+@app.put(
+    "/sessions/{session_id}/resume-policy",
+    response_model=ResumePolicyResponse,
+    dependencies=[Depends(require_auth)],
+)
+async def set_resume_policy(
+    session_id: UUID, req: ResumePolicyRequest
+) -> ResumePolicyResponse:
+    if not await db.set_resume_policy(session_id, req.enabled, req.window_minutes):
+        raise HTTPException(status_code=404, detail=f"unknown session {session_id}")
+    row = await db.get_session_row(session_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"unknown session {session_id}")
+    return resume_policy.policy_for(row)
+
+
+@app.post(
+    "/sessions/{session_id}/resume",
+    response_model=ResumeResponse,
+    dependencies=[Depends(require_auth)],
+)
+async def resume_interview(
+    session_id: UUID,
+    x_session_token: str | None = Header(default=None),
+) -> ResumeResponse:
+    try:
+        return await resume_policy.resume_session(session_id, x_session_token)
+    except resume_policy.ResumeError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@app.get(
+    "/compliance/policy",
+    response_model=CompliancePolicyResponse,
+    dependencies=[Depends(require_auth)],
+)
+async def get_compliance_policy() -> CompliancePolicyResponse:
+    return _compliance_response(await db.list_compliance_categories())
+
+
+@app.put(
+    "/compliance/policy/{category}",
+    response_model=CompliancePolicyResponse,
+    dependencies=[Depends(require_auth)],
+)
+async def update_compliance_policy(
+    category: str, req: ComplianceCategoryUpdate
+) -> CompliancePolicyResponse:
+    existing = {row["category"] for row in await db.list_compliance_categories()}
+    if category not in existing:
+        raise HTTPException(status_code=404, detail=f"unknown compliance category {category}")
+    patterns = req.patterns
+    if patterns is not None:
+        cleaned = [pattern.strip() for pattern in patterns if pattern.strip()]
+        if not cleaned:
+            raise HTTPException(status_code=400, detail="patterns cannot be empty")
+        if any(len(pattern) > 200 for pattern in cleaned):
+            raise HTTPException(status_code=400, detail="each pattern must be <= 200 characters")
+        for pattern in cleaned:
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                raise HTTPException(
+                    status_code=400, detail=f"invalid regex '{pattern}': {exc}"
+                ) from exc
+        patterns = cleaned
+    updated = await db.update_compliance_category(
+        category,
+        label=req.label,
+        description=req.description,
+        enabled=req.enabled,
+        patterns=patterns,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail=f"unknown compliance category {category}")
+    return _compliance_response(await db.list_compliance_categories())
+
+
+@app.post(
+    "/compliance/policy/reset",
+    response_model=CompliancePolicyResponse,
+    dependencies=[Depends(require_auth)],
+)
+async def reset_compliance_policy() -> CompliancePolicyResponse:
+    await db.reset_compliance_policy()
+    return _compliance_response(await db.list_compliance_categories())
+
+
+@app.get(
+    "/sessions/{session_id}/priorities",
+    response_model=PrioritiesResponse,
+    dependencies=[Depends(require_auth)],
+)
+async def get_priorities(session_id: UUID) -> PrioritiesResponse:
+    row = await db.get_session_row(session_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"unknown session {session_id}")
+    template = templates.get_template(row["template_id"])
+    stored = {item.node: item for item in await db.get_session_priorities(session_id)}
+    priorities = [
+        stored.get(node.id)
+        or PrioritySetting(node=node.id, priority="important", weight=2)
+        for node in template.nodes
+    ]
+    return PrioritiesResponse(session_id=session_id, priorities=priorities)
+
+
+@app.put(
+    "/sessions/{session_id}/priorities",
+    response_model=PrioritiesResponse,
+    dependencies=[Depends(require_auth)],
+)
+async def set_priorities(
+    session_id: UUID, req: PriorityUpdateRequest
+) -> PrioritiesResponse:
+    row = await db.get_session_row(session_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"unknown session {session_id}")
+    template = templates.get_template(row["template_id"])
+    valid_nodes = {node.id for node in template.nodes}
+    seen: set[str] = set()
+    cleaned: list[PrioritySetting] = []
+    for item in req.priorities:
+        if item.node not in valid_nodes:
+            raise HTTPException(status_code=400, detail=f"unknown evidence node {item.node}")
+        if item.node in seen:
+            raise HTTPException(status_code=400, detail=f"duplicate priority for {item.node}")
+        seen.add(item.node)
+        cleaned.append(item)
+    await db.set_session_priorities(session_id, cleaned)
+    stored = {item.node: item for item in await db.get_session_priorities(session_id)}
+    priorities = [
+        stored.get(node.id)
+        or PrioritySetting(node=node.id, priority="important", weight=2)
+        for node in template.nodes
+    ]
+    return PrioritiesResponse(session_id=session_id, priorities=priorities)
 
 
 @app.post(

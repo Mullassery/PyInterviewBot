@@ -28,6 +28,9 @@ def _citation_rows(report: SessionReport) -> list[dict[str, str | int | None]]:
                     "status": assessment.status,
                     "strength": assessment.evidence_strength,
                     "uncertainty": assessment.uncertainty,
+                    "priority": assessment.priority,
+                    "priority_weight": assessment.priority_weight,
+                    "priority_status": assessment.priority_status,
                     "turn": None,
                     "quote": "",
                     "model_note": "",
@@ -43,6 +46,9 @@ def _citation_rows(report: SessionReport) -> list[dict[str, str | int | None]]:
                     "status": citation.status,
                     "strength": assessment.evidence_strength,
                     "uncertainty": assessment.uncertainty,
+                    "priority": assessment.priority,
+                    "priority_weight": assessment.priority_weight,
+                    "priority_status": assessment.priority_status,
                     "turn": citation.transcript_turn,
                     "quote": citation.quote,
                     "model_note": citation.note,
@@ -61,28 +67,55 @@ def render_markdown(report: SessionReport, summary: SessionSummary) -> str:
         f"- Competency: `{report.competency}`",
         f"- Interview complete: {summary.is_complete}",
         f"- Evidence coverage: {report.evidence_coverage:.0%}",
+        f"- Priority-weighted coverage: {report.priority_weighted_coverage:.0%}",
         f"- Overall uncertainty: {report.overall_uncertainty}",
+        f"- Red flags: {report.red_flag_count}",
         f"- Contradictions: {report.contradictions}",
         "",
         "> Decision support only. A human reviewer must confirm or reject evidence.",
         "",
         "## Rubric evidence",
         "",
-        "| Node | Status | Strength | Uncertainty | Turn | Candidate quote |",
-        "| --- | --- | --- | --- | --- | --- |",
+        "| Node | Priority | Status | Priority status | Strength | Uncertainty | Turn | Candidate quote |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for row in _citation_rows(report):
         turn = "" if row["turn"] is None else str(row["turn"])
         lines.append(
-            "| {node} | {status} | {strength} | {uncertainty} | {turn} | {quote} |".format(
+            "| {node} | {priority} | {status} | {priority_status} | {strength} | {uncertainty} | {turn} | {quote} |".format(
                 node=_markdown_escape(str(row["node"])),
+                priority=_markdown_escape(str(row["priority"])),
                 status=_markdown_escape(str(row["status"])),
+                priority_status=_markdown_escape(str(row["priority_status"])),
                 strength="" if row["strength"] is None else row["strength"],
                 uncertainty=_markdown_escape(str(row["uncertainty"])),
                 turn=turn,
                 quote=_markdown_escape(str(row["quote"] or "")),
             )
         )
+    lines.extend(["", "## Red flags", ""])
+    if report.red_flags:
+        lines.extend(
+            "| Severity | Code | Node | Message | Turn |",
+        )
+        lines.extend("| --- | --- | --- | --- | --- |")
+        for flag in report.red_flags:
+            lines.append(
+                "| {severity} | {code} | {node} | {message} | {turn} |".format(
+                    severity=flag.severity,
+                    code=_markdown_escape(flag.code),
+                    node=_markdown_escape(flag.node or "session"),
+                    message=_markdown_escape(flag.message),
+                    turn="" if flag.evidence_turn is None else flag.evidence_turn,
+                )
+            )
+    else:
+        lines.append("- No red flags recorded.")
+    lines.extend(["", "## Priority gaps", ""])
+    if report.priority_gaps:
+        lines.extend(f"- {_markdown_escape(gap)}" for gap in report.priority_gaps)
+    else:
+        lines.append("- No priority gaps recorded.")
     lines.extend(["", "## Model notes and human review", ""])
     for assessment in report.node_assessments:
         lines.append(f"### {_markdown_escape(assessment.node)}")
@@ -115,7 +148,9 @@ def render_html(report: SessionReport, summary: SessionSummary) -> str:
         rows.append(
             "<tr>"
             f"<td>{escape(str(row['node']))}</td>"
+            f"<td>{escape(str(row['priority']))}</td>"
             f"<td>{escape(str(row['status']))}</td>"
+            f"<td>{escape(str(row['priority_status']))}</td>"
             f"<td>{'' if row['strength'] is None else row['strength']}</td>"
             f"<td>{escape(str(row['uncertainty']))}</td>"
             f"<td>{'' if row['turn'] is None else row['turn']}</td>"
@@ -151,12 +186,23 @@ th {{ background: #f1f5f9; }}
 <li><strong>Competency:</strong> {escape(report.competency)}</li>
 <li><strong>Interview complete:</strong> {summary.is_complete}</li>
 <li><strong>Evidence coverage:</strong> {report.evidence_coverage:.0%}</li>
+<li><strong>Priority-weighted coverage:</strong> {report.priority_weighted_coverage:.0%}</li>
 <li><strong>Overall uncertainty:</strong> {escape(report.overall_uncertainty)}</li>
+<li><strong>Red flags:</strong> {report.red_flag_count}</li>
 <li><strong>Contradictions:</strong> {report.contradictions}</li>
 </ul>
 <h2>Rubric evidence</h2>
-<table><thead><tr><th>Node</th><th>Status</th><th>Strength</th><th>Uncertainty</th><th>Turn</th><th>Candidate quote</th></tr></thead>
+<table><thead><tr><th>Node</th><th>Priority</th><th>Status</th><th>Priority status</th><th>Strength</th><th>Uncertainty</th><th>Turn</th><th>Candidate quote</th></tr></thead>
 <tbody>{''.join(rows)}</tbody></table>
+<h2>Red flags</h2>
+<table><thead><tr><th>Severity</th><th>Code</th><th>Node</th><th>Message</th><th>Turn</th></tr></thead>
+<tbody>{''.join(
+    f"<tr><td>{escape(flag.severity)}</td><td>{escape(flag.code)}</td>"
+    f"<td>{escape(flag.node or 'session')}</td><td>{escape(flag.message)}</td>"
+    f"<td>{'' if flag.evidence_turn is None else flag.evidence_turn}</td></tr>"
+    for flag in report.red_flags
+) or '<tr><td colspan="5">No red flags recorded.</td></tr>'}</tbody></table>
+<h2>Priority gaps</h2><ul>{''.join(f'<li>{escape(gap)}</li>' for gap in report.priority_gaps) or '<li>No priority gaps recorded.</li>'}</ul>
 <h2>Human review</h2><ul>{''.join(reviews) or '<li>No corrections recorded.</li>'}</ul>
 <h2>Limitations</h2><ul>{limitations}</ul>
 </body></html>"""
@@ -176,10 +222,16 @@ def render_csv(report: SessionReport, summary: SessionSummary) -> str:
             "status",
             "evidence_strength",
             "uncertainty",
+            "priority",
+            "priority_weight",
+            "priority_status",
             "transcript_turn",
             "candidate_quote",
             "model_note",
             "human_decision",
+            "red_flag_count",
+            "red_flag_codes",
+            "red_flag_messages",
         ]
     )
     for row in _citation_rows(report):
@@ -194,10 +246,24 @@ def render_csv(report: SessionReport, summary: SessionSummary) -> str:
                 row["status"],
                 row["strength"],
                 row["uncertainty"],
+                row["priority"],
+                row["priority_weight"],
+                row["priority_status"],
                 row["turn"],
                 row["quote"],
                 row["model_note"],
                 row["human_decision"],
+                report.red_flag_count,
+                ";".join(
+                    flag.code
+                    for flag in report.red_flags
+                    if flag.node == row["node"] or flag.node is None
+                ),
+                ";".join(
+                    flag.message
+                    for flag in report.red_flags
+                    if flag.node == row["node"] or flag.node is None
+                ),
             ]
         )
     return output.getvalue()

@@ -45,6 +45,19 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
 - Scheduler `twilio_message` action.
 - Locally mock-tested SMS, WhatsApp, and call requests.
 
+### Added (recruiter priorities, behavioral interviews, compliance policy)
+
+- Behavioral/STAR interview template with ownership, collaboration, conflict,
+  failure-learning, and ambiguity evidence nodes.
+- Recruiter-defined per-node priorities and weights, persisted per session and
+  reflected in priority-weighted coverage, gaps, and exports.
+- Explicit evidence-linked red flags for missing/weak/contradicted must-have
+  evidence, human review rejections, and incomplete/no-evidence sessions.
+- Editable, authenticated compliance policy (`GET/PUT /compliance/policy`,
+  `POST /compliance/policy/reset`) with regex validation.
+- Agent replaces non-compliant generated questions with safe template fallbacks.
+- Personality/MBTI inference is deliberately excluded from hiring evaluation.
+
 ### Added (report generation and audit trail)
 
 - Deterministic report renderers for Markdown, HTML, CSV, and JSON over the

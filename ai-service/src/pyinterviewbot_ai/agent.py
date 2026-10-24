@@ -7,12 +7,19 @@ decisions.
 
 from __future__ import annotations
 
+import logging
 import os
 import secrets
 from uuid import UUID, uuid4
 
 from . import db
 from .auth import hash_session_token
+from .compliance import (
+    SAFE_FALLBACK_QUESTIONS,
+    CompliancePolicy,
+    check_question,
+    load_policy,
+)
 from .evidence import EvidenceGraphState
 from .models import TurnResponse
 from .providers import EvidenceNodeSpec, TurnContext, get_language_model
@@ -30,6 +37,30 @@ DEFAULT_MAX_TURNS = 6
 FALLBACK_CLOSING_REMARK = (
     "That's a great place to stop — thank you for walking me through all of that in such detail."
 )
+logger = logging.getLogger(__name__)
+
+
+def _safe_question(
+    text: str,
+    template: InterviewTemplate,
+    history: list[tuple[str, str]],
+    is_complete: bool,
+    policy: CompliancePolicy,
+) -> str:
+    decision = check_question(text, policy)
+    if decision.allowed:
+        return text
+    logger.warning(
+        "blocked non-compliant candidate question; categories=%s",
+        ",".join(decision.categories),
+    )
+    if is_complete:
+        return FALLBACK_CLOSING_REMARK
+    asked = {content for speaker, content in history if speaker == "ai"}
+    for candidate in (*template.question_bank, *SAFE_FALLBACK_QUESTIONS):
+        if candidate not in asked and check_question(candidate, policy).allowed:
+            return candidate
+    return SAFE_FALLBACK_QUESTIONS[0]
 
 
 def _max_turns(template: InterviewTemplate) -> int:
@@ -146,10 +177,13 @@ async def start_session(
         _context(template, graph, [], "", 0, False),
     )
 
-    await db.append_transcript(session_id, 0, "ai", decision.question_text)
+    opening = _safe_question(
+        decision.question_text, template, [], False, await load_policy()
+    )
+    await db.append_transcript(session_id, 0, "ai", opening)
     await db.set_turn_count(session_id, 0)
 
-    return session_id, decision.question_text, template.id, session_token
+    return session_id, opening, template.id, session_token
 
 
 async def take_turn(session_id: UUID, transcript: str) -> TurnResponse:
@@ -208,6 +242,9 @@ async def take_turn(session_id: UUID, transcript: str) -> TurnResponse:
             else "Could you tell me a bit more about that?"
         )
 
+    ai_text = _safe_question(
+        ai_text, template, history, is_complete, await load_policy()
+    )
     await db.append_transcript(session_id, turn_number, "ai", ai_text)
     await db.set_turn_count(session_id, turn_number)
 

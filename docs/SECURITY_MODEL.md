@@ -36,6 +36,8 @@ gaps) and `docs/CAPABILITY_MATRIX.md` (provider/licence boundaries).
 | Cross-origin browser reads | Configurable CORS allowlist; no wildcard default |
 | Session deletion/retention | `DELETE /sessions/{id}` removes transcript, evidence, reviews |
 | PII in reports | Reports contain transcript quotes and rubric evidence only; interview-flow audio is not persisted |
+| Unsafe interview questions | Editable compliance policy blocks protected-characteristic/legal-risk patterns and replaces unsafe generated questions |
+| Red-flag interpretation | Flags are evidence/process signals only; no dishonesty, personality, or suitability inference |
 | Native studio recording | Explicit caller action only; in-memory, size-bounded, clearable, and dropped on session close |
 | Channel media downloads | HTTPS + Twilio host allowlist, no userinfo, 10 MiB cap, Basic auth |
 | Calendar credentials | Server-side access/refresh tokens only; never returned by the API |

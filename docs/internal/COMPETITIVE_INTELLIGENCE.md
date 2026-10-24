@@ -109,3 +109,116 @@ Scope: PyInterviewBot 0.1.1 (Apache-2.0). Voice-first interview MVP: Rust WebSoc
 - https://github.com/livekit/agents (accessed 2026-10-24) — Apache-2.0, release `livekit-agents@1.8.9` (2026-10-24), semantic turn detection and telephony
 - https://github.com/vocodedev/vocode-core (accessed 2026-10-24) — MIT, last release `v0.1.114a2` (2024-08-07)
 - Repo files inspected: `README.md`, `AUDIT_FINDINGS.md`, `ROADMAP_HONEST.md`, `COMPETITIVE_INTELLIGENCE.md`, `docs/ARCHITECTURE.md`, `CHANGELOG.md`, `ai-service/pyproject.toml`, `ai-service/src/pyinterviewbot_ai/{main,agent,documents,db}.py`, `gateway/src`
+
+---
+
+## BerriBot — proprietary AI recruiting platform (research date: 2026-10-25)
+
+**Scope:** public product/trust pages only. These are vendor marketing claims,
+not independently verified through a trial, API contract, security report, or
+customer reference. No BerriBot source code was copied or used.
+
+### Sources inspected
+
+- https://www.berribot.com/ — product map and positioning
+- https://www.berribot.com/product/berri-360
+- https://www.berribot.com/product/berri-connect
+- https://www.berribot.com/product/berri-mastermind
+- https://www.berribot.com/product/berri-proctor
+- https://www.berribot.com/product/berri-search
+- https://www.berribot.com/product/berri-tutor
+- https://www.berribot.com/trust-center — security, privacy, fairness claims
+- https://www.berribot.com/compare — competitor positioning pages
+
+### Product map (as described)
+
+| BerriBot product | Claimed capability |
+|---|---|
+| Berri 360 | One hiring loop: shortlist, outreach, AI interview, virtual interview, offer/checks, onboarding; one candidate record; Workday/SuccessFactors integration |
+| Berri Connect | Outbound calls, WhatsApp, SMS, email, scheduling, reschedules, time zones, no-show handling, calendar booking, Truecaller-verified calls |
+| Berri MasterMind | Structured conversational first-round technical interviews, adaptive follow-ups, 140+ languages, full-session proctoring, scorecard against hiring criteria and role benchmarks |
+| Berri Proctor | Identity verification, face/voice matching, 3D liveness/deepfake checks, environmental scene analysis, proxy/off-camera-help detection |
+| Berri Search & Match | JD-to-profile semantic matching, ATS profile reading, fit bands, ranked shortlist, Match Ranking Index with skill-level reasoning |
+| Berri Tutor | Post-hire onboarding mentor, skill-gap analysis, adaptive training paths |
+| Berri Talent | Candidate-facing certification interview/marketplace |
+
+### Trust / fairness claims
+
+- SOC 2 Type II, ISO 27001, GDPR, CCPA/CPRA; India DPDP claimed in progress.
+- Encryption in transit/at rest, role-based access, per-feature data
+  minimisation, stated data residency (including India).
+- Zero-retention terms with model providers and published deletion timelines.
+- Written rubric with transcript quotes under each score.
+- No emotion, personality, or mood inference from face or voice.
+- Human review before any decision that goes against a candidate.
+
+These claims are useful as product requirements even though they are unverified.
+
+### Capability comparison against PyInterviewBot
+
+| Capability | PyInterviewBot current state | BerriBot claim | Gap / action |
+|---|---|---|---|
+| Structured adaptive interviews | Implemented and tested (local/mock) | Yes | No core gap; keep evidence-linked reports |
+| Behavioral interviews | Implemented (STAR template) | Implied by structured interviews | Add more behavioral role packs and calibration |
+| Multi-channel outreach | Partial: Twilio SMS/WhatsApp/voice, scheduler, reminders, calendar events; no email | Calls, WhatsApp, SMS, email | Add email adapter and delivery-status automation |
+| Scheduling | Partial: Google/Outlook event creation, offsets/reminders; no availability negotiation or reschedule/no-show loop | Candidate slot selection, reschedules, time zones, no-shows | Build availability engine + reschedule/no-show state machine |
+| Calendar integrations | Implemented, not live-verified (Google/Outlook) | Calendar booking | Live OAuth validation and tenant setup |
+| Identity verification / proctoring | Not implemented | Face/voice ID, liveness, deepfake, environment, tab/gaze/AI-tool checks | High legal/privacy risk. Do not build without explicit consent, DPIA, and jurisdiction review |
+| Sourcing / match ranking | Not implemented | Semantic matching, fit bands, ranked shortlist | Evaluate a separate sourcing module; keep assessment/reporting decoupled |
+| ATS/HRIS integration | Not implemented | Workday, SuccessFactors, one candidate record | Add webhook/API adapter boundary; avoid storing more HR data than required |
+| Languages | English-first | 140+ languages claimed | Add multilingual ASR/TTS and per-language rubrics; verify model support |
+| Explainable scoring | Implemented: rubric evidence, transcript quotes, uncertainty, priorities, red flags, human review, exports | Rubric scorecard + role benchmarks + reasoning | Add role benchmarks/calibration and scorecard versioning |
+| Human review | Implemented (append-only reviews; decision-support only) | Human review before adverse decisions | Add enforced adverse-action workflow and audit coverage in ai-service |
+| Resume after outage | Backend/UI work was not complete at this snapshot | Not stated | Finish and test resume-window flow |
+| Candidate onboarding/upskilling | Not implemented | Berri Tutor | Out of near-term scope; possibly integrate a separate product |
+| Candidate marketplace | Not implemented | Berri Talent | Out of scope |
+| Compliance certifications | Not held | SOC 2/ISO/GDPR/CCPA claims; DPDP in progress | Complete security controls, DPA/retention policy, and external audit before enterprise sales |
+| Audit trail | Partial: gateway provider/scheduler/calendar/webhook actions | Claimed deletion/verification and security controls | Add ai-service reviewer/deletion/export audit coverage |
+| Tenant isolation | Not implemented | Enterprise positioning | Add tenant-scoped credentials and row-level isolation |
+| Cost per interview | Not measured | Not published | Add measured latency/cost instrumentation |
+
+### Features worth improving in PyInterviewBot
+
+1. **Scheduling as a workflow, not just an event.** Add candidate availability
+   slots, reschedule/cancel handling, no-show follow-up, time-zone display, and
+   idempotent reminder regeneration. Reuse the existing scheduler and calendar
+   layer.
+2. **Email channel.** Add a provider-neutral email adapter with templated
+   reminders and delivery-status tracking.
+3. **Role benchmarks and scorecard versioning.** Keep evidence-linked reports,
+   but add configurable benchmark bands per role/template and record the rubric
+   version used for each report.
+4. **Adverse-action human workflow.** Enforce that no rejection/flag is final
+   without reviewer acknowledgement and an audit event.
+5. **Multilingual interviews.** Make language explicit in templates, ASR/TTS,
+   and reports; do not claim 140+ languages until each supported language is
+   tested.
+6. **ATS integration boundary.** Define a narrow candidate/interview sync
+   interface rather than coupling to one ATS; minimize stored HR data.
+7. **Retention and consent operations.** Add candidate-visible recording/
+   transcription consent, retention schedules, deletion verification, and
+   export controls.
+8. **Tenant isolation and scoped credentials.** Required before enterprise use;
+   current global-key model is not sufficient.
+
+### Deliberately not building (without legal/ethical review)
+
+- Face/voice identity matching, liveness, deepfake, gaze, emotion, personality,
+  or “off-camera help” inference. These are biometric/high-risk processing,
+  require explicit consent and a DPIA, and are not necessary for the core
+  interview product. Do not add them merely for competitive parity.
+- A candidate marketplace or post-hire tutoring product inside this repository.
+
+### Competitive conclusions
+
+- BerriBot's differentiation is the **connected hiring loop** (sourcing →
+  outreach/scheduling → interview/proctoring → offer/onboarding) and enterprise
+  compliance packaging, not the interview engine alone.
+- PyInterviewBot already differentiates on **self-hosted voice**, **evidence-
+  linked reports**, **recruiter priorities/red flags**, **human review**, and
+  **editable legal-compliance policy**.
+- The highest-value non-proctoring gaps are scheduling workflow, email, role
+  benchmarks/scorecards, multilingual support, ATS boundaries, and tenant
+  isolation.
+- Proctoring is a legal/privacy product decision, not an engineering backlog
+  item. Mark it blocked until consent, DPIA, and jurisdiction review exist.

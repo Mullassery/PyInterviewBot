@@ -281,7 +281,10 @@ means.
   databases.
 - `GET /sessions/{id}/report` maps each rubric node to persisted transcript
   turns, returns the candidate quote plus the model-written note explicitly
-  flagged as inference, and exposes coverage/uncertainty.
+  flagged as inference, and exposes coverage/uncertainty, recruiter priorities,
+  priority-weighted coverage/gaps, and evidence-linked red flags.
+- `GET /sessions/{id}/report/export` renders Markdown, HTML, CSV, or JSON with
+  escaped candidate/model text.
 - `POST /sessions/{id}/review` records append-only human corrections
   (`confirm`, `reject`, `needs_more_evidence`).
 - Reports are decision-support only and always require human review. They do

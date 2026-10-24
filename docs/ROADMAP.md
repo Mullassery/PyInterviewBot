@@ -33,7 +33,7 @@ Companion documents:
 | `cargo test` | **80 passed** (43 gateway + 32 runtime + 5 domain) |
 | `cargo test -p voice-runtime --features local-neural` | **63 passed** |
 | `uv run ruff check .` | pass |
-| `uv run --group dev python -m pytest -q` | **35 passed** |
+| `uv run --group dev python -m pytest -q` | **46 passed** |
 | `npx tsc --noEmit` | pass |
 | `npm run build` | pass |
 | Live native gateway smoke | health, sessions, speech, chunked speech, transcription, recording export/clear/delete, auth rejection |
@@ -122,6 +122,8 @@ Pending:
 3. Tenant isolation and scoped recruiter/admin credentials.
 4. Audit log for destructive/review/export actions. Gateway provider/scheduler
    actions are covered; AI-service review/delete auditing remains pending.
+5. Recruiter priorities, behavioral templates, editable question-compliance
+   policy, and evidence-linked red flags are implemented.
 5. Consent/retention policy UI and disk-backed audio controls.
 6. Encryption at rest, key rotation, dependency vulnerability scanning.
 7. Load/latency/resource measurements and failure injection.
@@ -374,36 +376,69 @@ sufficient. Do not implement a text-only bot and call it a live interviewer.
 
 ---
 
-# Dependency-ordered pending steps
+# Honest gap register (2026-10-25)
 
-## P0 — correctness, security, and shared contracts
+This is the explicit “not done / not verified” list. Do not describe these as
+complete in README, sales material, or release notes.
 
-1. **Provider webhook signature/replay framework** with Twilio implementation.
-2. **SSRF-safe media-fetch policy** and safe audio validation.
-3. **Twilio Media Streams real-time loop** and live account validation.
-
-## P1 — first real channel slices
-
-6. **Twilio voice gather/transcribe adapter** with signature tests and mock call flow.
-7. **WhatsApp text adapter** with opt-out, deduplication, and message status.
-8. **WhatsApp voice-note adapter** with safe media download and transcription.
-9. **Teams scheduling client** behind a feature flag, with tenant setup docs.
-
-## P2 — advanced / blocked capabilities
-
-10. Twilio Media Streams real-time loop.
-11. Teams transcript retrieval/evaluation.
-12. WhatsApp live calling after capability verification.
-13. Teams autonomous live participation after platform/permission verification.
-
-## P3 — production hardening
-
-14. TLS/WSS, tenant isolation, shared quotas, audit log.
-15. Consent/retention UI and disk-backed media policy.
-16. Load/latency benchmarks, failure injection, vulnerability scanning.
-17. Release packaging and live-provider validation.
+| Gap | Status | Evidence | Risk / impact | Priority |
+|---|---|---|---|---|
+| Live Twilio voice/Media Streams validation | Not live-verified | Signed webhook/media smoke with mock engine only | Provider behavior, latency, media limits, call failures | P0 |
+| Live WhatsApp text/voice-note validation | Not live-verified | Signed mock webhook + SSRF checks | Approval/template/window behavior, media expiry | P0 |
+| Live Google Calendar / Microsoft Graph validation | Not live-verified | Request-body/unit tests and mock transports | OAuth consent, tenant policy, meeting URL correctness | P0 |
+| Resume after outage | Partial | Backend policy/resume API is tested; gateway/client reconnect and expiry edge cases are not | Candidate loses progress; scope/security bugs | P0 |
+| Teams transcript evaluation | Missing | No Graph transcript client | Cannot evaluate Teams-native meetings | P1 |
+| Teams autonomous live participation | Blocked | Requires supported calling/media bot, tenant permissions, media infra | Cannot claim live AI participation | Blocked |
+| WhatsApp live calling | Blocked/unverified | Provider capability/region/account approval unconfirmed | Must not fake with messaging | Blocked |
+| Scheduling workflow | Partial | Scheduler/reminders/calendar events exist; no availability negotiation, reschedule, no-show, or email | Manual recruiter work; candidate drop-off | P1 |
+| Email channel | Missing | Twilio SMS/WhatsApp/voice only | Incomplete outreach coverage | P1 |
+| ATS/HRIS integration | Missing | No Workday/SuccessFactors/etc. adapter | Enterprise adoption gap | P2 |
+| Sourcing / semantic match | Missing | No candidate search/ranking module | Out of core interview scope | P2 |
+| Multilingual interviews | Missing | English-first templates/ASR/TTS | Global hiring limitation | P2 |
+| Role benchmarks / scorecard versioning | Missing | Evidence reports exist; no calibrated role bands or rubric version field | Comparability across candidates/roles | P1 |
+| PDF/recruiter export UI | Partial | JSON/Markdown/HTML/CSV API; no PDF or UI | Recruiter workflow friction | P2 |
+| Tenant isolation / scoped credentials | Missing | One global key; session tokens are partial | Cross-tenant data leakage | P0 |
+| TLS/WSS deployment | Missing | Docs only; local HTTP/WS defaults | Remote deployment unsafe | P0 |
+| Consent/retention operations | Partial | Delete endpoints; no policy UI/automation or disk audio retention | Privacy/legal exposure | P0 |
+| AI-service audit coverage | Partial | Gateway audit only; review/delete/export in ai-service not audited | Weak accountability | P0 |
+| Observability/load/cost | Missing | No metrics/tracing export, load tests, or cost-per-interview | No SLO/regression evidence | P1 |
+| Proctoring/identity/liveness/emotion/gaze/MBTI | Deliberately excluded | Not implemented; see competitive intelligence | Biometric/high-risk processing without consent/DPIA | Blocked |
 
 ---
+
+# Dependency-ordered pending steps
+
+## P0 — correctness, security, and validation
+
+1. Finish and test outage resume end-to-end: gateway reconnect, client token
+   persistence, expiry/disabled behavior, replay safety.
+2. Run live Twilio, WhatsApp, Google Calendar, and Microsoft Graph validation
+   with approved accounts and public HTTPS/WSS endpoints.
+3. Tenant isolation, scoped credentials, TLS/WSS, and shared quotas.
+4. AI-service audit coverage for reviewer, deletion, and export actions.
+5. Consent/retention policy, deletion verification, and recording controls.
+
+## P1 — workflow and evaluation depth
+
+6. Availability negotiation, reschedule/cancel/no-show automation, and email.
+7. Role benchmarks, rubric versioning, and scorecard calibration.
+8. Teams transcript retrieval/evaluation after Graph permission verification.
+9. Multilingual templates, ASR/TTS, and report localization.
+10. Observability: correlation IDs, latency/error metrics, load/cost baselines.
+
+## P2 — advanced / out of scope
+
+11. ATS/HRIS integration boundary and sourcing/match evaluation.
+12. PDF/recruiter report UI and signed external report links.
+13. WhatsApp live calling only after capability verification.
+14. Teams autonomous live participation only after platform/permission verification.
+15. Proctoring/identity/liveness/emotion/gaze/MBTI only after consent, DPIA,
+    and jurisdiction review; otherwise remain blocked.
+
+## P3 — release
+
+16. Docker/deployment reference, backups, and public-webhook hardening.
+17. Live-provider CI harness (opt-in), packaging validation, and release notes.
 
 # External blockers and required inputs
 
@@ -425,13 +460,13 @@ documentation-based and must be re-verified against the operating account.
 
 # Immediate next milestone
 
-Implement **Phase 8 — Twilio voice**:
+1. Add resume-policy/resume tests and gateway/client reconnect support.
+2. Run live-provider validation for the already implemented Twilio/WhatsApp/
+   calendar adapters, or record the exact credential/approval blockers.
+3. Complete tenant isolation, TLS/WSS, AI-service audit, and consent/retention
+   controls before any remote deployment.
+4. Add availability/reschedule/no-show workflow on top of the existing scheduler
+   and calendar layer.
 
-1. Twilio request-signature verifier with signed fixtures.
-2. Inbound/outbound call webhook normalization into `interview-domain`.
-3. Session correlation through the channel-neutral API.
-4. TwiML gather/transcribe flow and duplicate-callback tests.
-5. Documentation of live-account prerequisites; live tests remain **NOT RUN**
-   until an approved Twilio account and public HTTPS callback URL are available.
-
-Do not start WhatsApp or Teams provider code before the Twilio adapter is stable.
+Do not add proctoring, biometric identity checks, or personality/MBTI inference
+without legal/privacy review and explicit candidate consent.

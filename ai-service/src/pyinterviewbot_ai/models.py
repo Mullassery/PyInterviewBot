@@ -10,6 +10,9 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 EvidenceStatus = Literal["confirmed", "weak", "contradicted", "not_addressed"]
+PriorityLevel = Literal["must_have", "important", "nice_to_have"]
+PriorityStatus = Literal["met", "partial", "not_demonstrated"]
+RedFlagSeverity = Literal["low", "medium", "high"]
 ChannelName = Literal[
     "web",
     "twilio_voice",
@@ -136,8 +139,22 @@ class NodeAssessment(BaseModel):
     evidence_strength: int | None = Field(default=None, ge=0, le=3)
     max_evidence_strength: int = 3
     uncertainty: Literal["low", "medium", "high"]
+    priority: PriorityLevel = "important"
+    priority_weight: int = Field(default=2, ge=1, le=5)
+    priority_status: PriorityStatus = "partial"
     citations: list[EvidenceCitation] = Field(default_factory=list)
     human_review: list[ReviewCorrection] = Field(default_factory=list)
+
+
+class RedFlag(BaseModel):
+    code: str
+    severity: RedFlagSeverity
+    node: str | None = None
+    message: str
+    evidence_turn: int | None = None
+    quote: str = ""
+    source: Literal["evidence", "human_review", "session"] = "evidence"
+    requires_human_review: bool = True
 
 
 class SessionReport(BaseModel):
@@ -147,6 +164,10 @@ class SessionReport(BaseModel):
     generated_from: str = "persisted transcript and evidence"
     node_assessments: list[NodeAssessment]
     evidence_coverage: float = Field(ge=0.0, le=1.0)
+    priority_weighted_coverage: float = Field(default=0.0, ge=0.0, le=1.0)
+    priority_gaps: list[str] = Field(default_factory=list)
+    red_flags: list[RedFlag] = Field(default_factory=list)
+    red_flag_count: int = 0
     contradictions: int
     overall_uncertainty: Literal["low", "medium", "high"]
     human_review_required: bool = True
@@ -182,3 +203,60 @@ class ChannelMessageResponse(BaseModel):
     ai_text: str
     is_complete: bool
     duplicate: bool = False
+
+
+class PrioritySetting(BaseModel):
+    node: str
+    priority: PriorityLevel
+    weight: int | None = Field(default=None, ge=1, le=5)
+
+
+class PriorityUpdateRequest(BaseModel):
+    priorities: list[PrioritySetting]
+
+
+class PrioritiesResponse(BaseModel):
+    session_id: UUID
+    priorities: list[PrioritySetting]
+
+
+class ComplianceCategoryView(BaseModel):
+    id: str
+    label: str
+    description: str
+    enabled: bool
+    patterns: list[str]
+    updated_at: str | None = None
+
+
+class CompliancePolicyResponse(BaseModel):
+    categories: list[ComplianceCategoryView]
+
+
+class ComplianceCategoryUpdate(BaseModel):
+    label: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
+    enabled: bool | None = None
+    patterns: list[str] | None = Field(default=None, max_length=50)
+
+
+class ResumePolicyRequest(BaseModel):
+    enabled: bool
+    window_minutes: int = Field(default=1440, ge=5, le=10080)
+
+
+class ResumePolicyResponse(BaseModel):
+    session_id: UUID
+    enabled: bool
+    window_minutes: int
+    deadline: str | None
+    resume_count: int
+
+
+class ResumeResponse(BaseModel):
+    session_id: UUID
+    question_text: str
+    turn_count: int
+    resume_deadline: str | None
+    resume_count: int
+    is_complete: bool

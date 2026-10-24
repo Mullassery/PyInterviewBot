@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import os
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import aiosqlite
@@ -17,6 +17,7 @@ from .evidence import COMPETENCY
 from .models import (
     EvidenceRecord,
     EvidenceStatus,
+    PrioritySetting,
     ReviewCorrection,
     SessionListItem,
     TranscriptSegment,
@@ -32,6 +33,10 @@ CREATE TABLE IF NOT EXISTS sessions (
     resume_claim TEXT NOT NULL,
     template_id TEXT NOT NULL DEFAULT 'rag_architect',
     token_hash TEXT NOT NULL DEFAULT '',
+    resume_enabled INTEGER NOT NULL DEFAULT 1,
+    resume_window_minutes INTEGER NOT NULL DEFAULT 1440,
+    resume_deadline TEXT,
+    resume_count INTEGER NOT NULL DEFAULT 0,
     turn_count INTEGER NOT NULL DEFAULT 0,
     is_complete INTEGER NOT NULL DEFAULT 0
 );
@@ -73,6 +78,24 @@ CREATE TABLE IF NOT EXISTS channel_events (
     PRIMARY KEY (channel, event_id)
 );
 
+CREATE TABLE IF NOT EXISTS compliance_policy (
+    category TEXT PRIMARY KEY,
+    label TEXT NOT NULL,
+    description TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    patterns_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS session_priorities (
+    session_id TEXT NOT NULL REFERENCES sessions(id),
+    node TEXT NOT NULL,
+    priority TEXT NOT NULL,
+    weight INTEGER,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (session_id, node)
+);
+
 CREATE TABLE IF NOT EXISTS review_corrections (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL REFERENCES sessions(id),
@@ -100,6 +123,29 @@ async def init_db() -> None:
             await db.execute(
                 "ALTER TABLE sessions ADD COLUMN token_hash TEXT NOT NULL DEFAULT ''"
             )
+        for name, definition in (
+            ("resume_enabled", "INTEGER NOT NULL DEFAULT 1"),
+            ("resume_window_minutes", "INTEGER NOT NULL DEFAULT 1440"),
+            ("resume_deadline", "TEXT"),
+            ("resume_count", "INTEGER NOT NULL DEFAULT 0"),
+        ):
+            if name not in columns:
+                await db.execute(f"ALTER TABLE sessions ADD COLUMN {name} {definition}")
+        from .compliance import DEFAULT_CATEGORIES
+
+        for category in DEFAULT_CATEGORIES:
+            await db.execute(
+                "INSERT OR IGNORE INTO compliance_policy "
+                "(category, label, description, enabled, patterns_json, updated_at) "
+                "VALUES (?, ?, ?, 1, ?, ?)",
+                (
+                    category.id,
+                    category.label,
+                    category.description,
+                    json.dumps(list(category.patterns)),
+                    _now(),
+                ),
+            )
         await db.commit()
 
 
@@ -123,10 +169,20 @@ async def create_session(
     token_hash: str = "",
 ) -> None:
     async with connect() as db:
+        now = datetime.now(UTC)
         await db.execute(
-            "INSERT INTO sessions (id, created_at, resume_claim, template_id, token_hash) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (str(session_id), _now(), claim.text, template_id, token_hash),
+            "INSERT INTO sessions "
+            "(id, created_at, resume_claim, template_id, token_hash, "
+            "resume_enabled, resume_window_minutes, resume_deadline) "
+            "VALUES (?, ?, ?, ?, ?, 1, 1440, ?)",
+            (
+                str(session_id),
+                now.isoformat(),
+                claim.text,
+                template_id,
+                token_hash,
+                (now + timedelta(minutes=1440)).isoformat(),
+            ),
         )
         await db.commit()
 
@@ -180,6 +236,9 @@ async def mark_complete(session_id: UUID) -> None:
 async def delete_session(session_id: UUID) -> bool:
     """Delete a session and all transcript/evidence rows (retention request)."""
     async with connect() as db:
+        await db.execute(
+            "DELETE FROM session_priorities WHERE session_id = ?", (str(session_id),)
+        )
         await db.execute(
             "DELETE FROM channel_events WHERE session_id = ?", (str(session_id),)
         )
@@ -360,3 +419,142 @@ async def record_channel_event(
         )
         await db.commit()
         return cursor.rowcount > 0
+
+
+async def set_session_priorities(
+    session_id: UUID, priorities: list[PrioritySetting]
+) -> None:
+    async with connect() as db:
+        await db.execute(
+            "DELETE FROM session_priorities WHERE session_id = ?", (str(session_id),)
+        )
+        for item in priorities:
+            await db.execute(
+                "INSERT INTO session_priorities "
+                "(session_id, node, priority, weight, updated_at) VALUES (?, ?, ?, ?, ?)",
+                (str(session_id), item.node, item.priority, item.weight, _now()),
+            )
+        await db.commit()
+
+
+async def get_session_priorities(session_id: UUID) -> list[PrioritySetting]:
+    async with connect() as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT node, priority, weight FROM session_priorities "
+            "WHERE session_id = ? ORDER BY node ASC",
+            (str(session_id),),
+        )
+        rows = await cursor.fetchall()
+        return [
+            PrioritySetting(node=r["node"], priority=r["priority"], weight=r["weight"])
+            for r in rows
+        ]
+
+
+async def list_compliance_categories() -> list[dict]:
+    async with connect() as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT category, label, description, enabled, patterns_json, updated_at "
+            "FROM compliance_policy ORDER BY category ASC"
+        )
+        rows = await cursor.fetchall()
+        return [
+            {
+                "category": row["category"],
+                "label": row["label"],
+                "description": row["description"],
+                "enabled": bool(row["enabled"]),
+                "patterns": json.loads(row["patterns_json"]),
+                "updated_at": row["updated_at"],
+            }
+            for row in rows
+        ]
+
+
+async def update_compliance_category(
+    category: str,
+    *,
+    label: str | None = None,
+    description: str | None = None,
+    enabled: bool | None = None,
+    patterns: list[str] | None = None,
+) -> bool:
+    fields: list[str] = []
+    values: list[object] = []
+    if label is not None:
+        fields.append("label = ?")
+        values.append(label)
+    if description is not None:
+        fields.append("description = ?")
+        values.append(description)
+    if enabled is not None:
+        fields.append("enabled = ?")
+        values.append(1 if enabled else 0)
+    if patterns is not None:
+        fields.append("patterns_json = ?")
+        values.append(json.dumps(patterns))
+    if not fields:
+        return False
+    fields.append("updated_at = ?")
+    values.append(_now())
+    values.append(category)
+    async with connect() as db:
+        cursor = await db.execute(
+            f"UPDATE compliance_policy SET {', '.join(fields)} WHERE category = ?",
+            values,
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def reset_compliance_policy() -> None:
+    from .compliance import DEFAULT_CATEGORIES
+
+    async with connect() as db:
+        await db.execute("DELETE FROM compliance_policy")
+        for category in DEFAULT_CATEGORIES:
+            await db.execute(
+                "INSERT INTO compliance_policy "
+                "(category, label, description, enabled, patterns_json, updated_at) "
+                "VALUES (?, ?, ?, 1, ?, ?)",
+                (
+                    category.id,
+                    category.label,
+                    category.description,
+                    json.dumps(list(category.patterns)),
+                    _now(),
+                ),
+            )
+        await db.commit()
+
+
+async def set_resume_policy(
+    session_id: UUID, enabled: bool, window_minutes: int
+) -> bool:
+    async with connect() as db:
+        cursor = await db.execute(
+            "SELECT created_at FROM sessions WHERE id = ?", (str(session_id),)
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return False
+        created = datetime.fromisoformat(row[0])
+        deadline = created + timedelta(minutes=window_minutes)
+        await db.execute(
+            "UPDATE sessions SET resume_enabled = ?, resume_window_minutes = ?, "
+            "resume_deadline = ? WHERE id = ?",
+            (1 if enabled else 0, window_minutes, deadline.isoformat(), str(session_id)),
+        )
+        await db.commit()
+        return True
+
+
+async def increment_resume_count(session_id: UUID) -> None:
+    async with connect() as db:
+        await db.execute(
+            "UPDATE sessions SET resume_count = resume_count + 1 WHERE id = ?",
+            (str(session_id),),
+        )
+        await db.commit()

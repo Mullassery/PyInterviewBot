@@ -156,6 +156,46 @@ _BUILTINS = [
         max_turns=6,
         evaluation_notes="Reliability-focused backend template.",
     ),
+
+    InterviewTemplate(
+        id="behavioral_interview",
+        title="Behavioral Interview — STAR",
+        role="Behavioral Interviewer",
+        competency="behavioral_competencies",
+        description="behavioral competencies and work-style evidence",
+        nodes=(
+            EvidenceNodeSpec(
+                "ownership",
+                "Ownership, accountability, and personal contribution",
+            ),
+            EvidenceNodeSpec(
+                "collaboration",
+                "Collaboration, communication, and working with others",
+            ),
+            EvidenceNodeSpec(
+                "conflict_resolution",
+                "Handling disagreement, feedback, and conflict",
+            ),
+            EvidenceNodeSpec(
+                "failure_learning",
+                "Responding to failure, mistakes, and learning",
+            ),
+            EvidenceNodeSpec(
+                "ambiguity",
+                "Operating with ambiguity, change, and competing priorities",
+            ),
+        ),
+        question_bank=(
+            "Tell me about a project you personally owned end to end. What was the situation, what did you do, and what happened?",
+            "Describe a time you disagreed with a teammate or stakeholder. How did you handle it?",
+            "Tell me about a failure or mistake you were responsible for. What did you learn and change?",
+            "Describe a time you had to make progress with incomplete information or competing priorities.",
+            "How do you give and receive difficult feedback? Give me a specific example.",
+            "What is a behavior you have deliberately worked to improve, and what changed?",
+        ),
+        max_turns=6,
+        evaluation_notes="Behavioral/STAR template; no subject-matter expertise assumed.",
+    ),
     InterviewTemplate(
         id="data_engineer",
         title="Senior Data Engineer — Pipelines",

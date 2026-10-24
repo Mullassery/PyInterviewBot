@@ -43,10 +43,17 @@ This platform:                Listen → Understand → Probe → Verify → Ass
   (`sherpa-onnx` + operator-supplied models), all in Rust with tests.
 - **Deterministic mock mode.** `PYINTERVIEWBOT_PROVIDER=mock` runs a complete interview,
   report, and review flow with no models, network, or paid API. CI uses this path.
-- **Templates and evidence-linked reports.** Role-specific templates define explicit
-  competencies, question banks, and turn limits. `GET /sessions/{id}/report` links every
-  rubric node to transcript quotes, flags model notes as inference, exposes uncertainty,
-  and requires human review.
+- **Templates and evidence-linked reports.** Role-specific technical and behavioral
+  templates define explicit competencies, question banks, and turn limits.
+  `GET /sessions/{id}/report` links every rubric node to transcript quotes, flags
+  model notes as inference, exposes uncertainty, priority gaps, and red flags, and
+  requires human review.
+- **Recruiter priorities.** Recruiters can set per-node priority levels
+  (`must_have`, `important`, `nice_to_have`) and weights; reports and exports show
+  priority-weighted coverage and explicit gaps.
+- **Editable question compliance policy.** Protected-characteristic and other
+  high-risk question patterns are reviewed and edited through an authenticated
+  policy API; unsafe generated questions are replaced before delivery.
 - **Bounded real-time transport.** Configurable VAD silence, per-turn audio caps,
   WebSocket frame/message limits, ai-service auth forwarding, playback-duration-aware TTS,
   barge-in, and `/ready` dependency health checks.
@@ -466,9 +473,40 @@ curl -X POST http://127.0.0.1:8000/sessions/<id>/review \
   -d '{"node":"failure_handling","reviewer":"alice","decision":"confirm","note":"verified"}'
 ```
 
-Available templates: `GET /templates`. Reports are decision-support only, always
-require human review, and do not evaluate accent, attractiveness, emotion,
-personality, protected traits, or unrelated communication style.
+Available templates: `GET /templates`, including `behavioral_interview` for
+STAR-style behavioral interviews and the role-specific technical templates.
+Reports are decision-support only, always require human review, and do not
+evaluate accent, attractiveness, emotion, personality, protected traits, or
+unrelated communication style.
+
+### Recruiter priorities
+
+```bash
+curl -X PUT http://127.0.0.1:8000/sessions/<id>/priorities \
+  -H "X-API-Key: change-me" -H "Content-Type: application/json" \
+  -d '{"priorities":[
+       {"node":"failure_handling","priority":"must_have","weight":5},
+       {"node":"consistency","priority":"important","weight":3},
+       {"node":"incident_response","priority":"nice_to_have","weight":1}]}'
+```
+
+`GET /sessions/<id>/priorities` returns effective priorities. Reports include
+`priority_weighted_coverage`, `priority_gaps`, and `red_flags` with severity,
+evidence turn, and quote. Red flags are evidence/process signals, not findings
+of dishonesty or unsuitability.
+
+### Medical, protected-trait, and compliance guard
+
+`GET /compliance/policy` lets an authorized reviewer inspect every category and
+regex. `PUT /compliance/policy/{category}` edits labels, descriptions, enabled
+state, and patterns; invalid regexes are rejected. `POST
+/compliance/policy/reset` restores defaults. Unsafe LLM-generated questions are
+replaced with a safe template question before the candidate hears them. This is
+a defensive filter, not legal advice; jurisdiction-specific review is still
+required.
+
+Personality/MBTI inference is intentionally not part of candidate evaluation:
+it is not validated for hiring decisions and would create legal/ethical risk.
 
 ### Report exports
 
