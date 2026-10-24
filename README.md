@@ -405,6 +405,27 @@ actions use `"action":"twilio_message"` with a Twilio message payload. Failed
 actions retry with bounded backoff and become terminal after three attempts.
 Stale `dispatching` claims are recovered after five minutes.
 
+## Interview reminders
+
+Reminders are planned into the same durable scheduler used for outbound actions.
+They support WhatsApp, SMS, and optional reminder calls at configurable offsets:
+
+```bash
+curl -X POST http://127.0.0.1:8787/reminders \
+  -H "Authorization: Bearer $GATEWAY_API_KEY" -H "Content-Type: application/json" \
+  -d '{"interview_id":"interview-1","external_id":"+15551234567",
+       "start_at":"2026-10-27T10:00:00Z",
+       "offsets_minutes":[1440,60,10],
+       "channels":["whatsapp","sms","voice"],
+       "message":"Interview reminder: starts in {minutes} minutes."}'
+```
+
+Each channel/offset becomes a `twilio_message` or `twilio_call` schedule with an
+idempotency key derived from interview, offset, and channel. Re-posting the same
+reminder request returns the existing schedule IDs instead of duplicating sends.
+Past offsets are skipped. Delivery uses the scheduler worker and its bounded
+retries; live Twilio validation remains required.
+
 ## Channel-neutral interview API
 
 Channel adapters share one interview engine and one durable session mapping:
@@ -531,6 +552,27 @@ sends, and `TWILIO_SMS_FROM`/`TWILIO_FROM_NUMBER` for SMS. Scheduled message
 actions use `"action":"twilio_message"` with a Twilio message payload. Failed
 actions retry with bounded backoff and become terminal after three attempts.
 Stale `dispatching` claims are recovered after five minutes.
+
+## Interview reminders
+
+Reminders are planned into the same durable scheduler used for outbound actions.
+They support WhatsApp, SMS, and optional reminder calls at configurable offsets:
+
+```bash
+curl -X POST http://127.0.0.1:8787/reminders \
+  -H "Authorization: Bearer $GATEWAY_API_KEY" -H "Content-Type: application/json" \
+  -d '{"interview_id":"interview-1","external_id":"+15551234567",
+       "start_at":"2026-10-27T10:00:00Z",
+       "offsets_minutes":[1440,60,10],
+       "channels":["whatsapp","sms","voice"],
+       "message":"Interview reminder: starts in {minutes} minutes."}'
+```
+
+Each channel/offset becomes a `twilio_message` or `twilio_call` schedule with an
+idempotency key derived from interview, offset, and channel. Re-posting the same
+reminder request returns the existing schedule IDs instead of duplicating sends.
+Past offsets are skipped. Delivery uses the scheduler worker and its bounded
+retries; live Twilio validation remains required.
 
 ## Channel-neutral interview API
 

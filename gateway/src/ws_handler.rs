@@ -90,6 +90,7 @@ pub fn router(state: AppState) -> Router {
         .merge(crate::twilio::router())
         .merge(crate::scheduler::router())
         .merge(crate::calendar::router())
+        .merge(crate::reminders::router())
         .with_state(state)
 }
 

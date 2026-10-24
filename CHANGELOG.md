@@ -45,6 +45,15 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
 - Scheduler `twilio_message` action.
 - Locally mock-tested SMS, WhatsApp, and call requests.
 
+### Added (interview reminders)
+
+- `POST /reminders` creates idempotent WhatsApp/SMS/voice reminders at
+  configurable offsets before an interview.
+- Reminder actions are durable scheduler entries with bounded retries and
+  cancellation.
+- Past offsets are skipped; duplicate requests return the existing schedule IDs.
+- Live Twilio reminder delivery remains unverified.
+
 ### Added (calendar integrations)
 
 - Provider-neutral calendar layer with Google Calendar and Microsoft Graph

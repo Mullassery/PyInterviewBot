@@ -55,13 +55,13 @@ pub struct Schedule {
 }
 
 #[derive(Debug, Deserialize)]
-struct CreateScheduleRequest {
-    action: ScheduleAction,
-    external_id: String,
-    send_at: DateTime<Utc>,
+pub struct ScheduleRequest {
+    pub action: ScheduleAction,
+    pub external_id: String,
+    pub send_at: DateTime<Utc>,
     #[serde(default)]
-    payload: Value,
-    idempotency_key: Option<String>,
+    pub payload: Value,
+    pub idempotency_key: Option<String>,
 }
 
 #[derive(Clone)]
@@ -107,7 +107,7 @@ impl SchedulerStore {
         .map_err(|error| error.to_string())
     }
 
-    fn insert(&self, request: &CreateScheduleRequest) -> Result<Schedule, String> {
+    pub fn insert(&self, request: &ScheduleRequest) -> Result<Schedule, String> {
         if request.external_id.trim().is_empty() {
             return Err("external_id is required".to_string());
         }
@@ -333,7 +333,7 @@ async fn create(
     State(state): State<AppState>,
     headers: HeaderMap,
     Query(query): Query<std::collections::HashMap<String, String>>,
-    Json(request): Json<CreateScheduleRequest>,
+    Json(request): Json<ScheduleRequest>,
 ) -> Response {
     if !admin(&state, &headers, &query) {
         return StatusCode::UNAUTHORIZED.into_response();
@@ -511,8 +511,8 @@ mod tests {
         SchedulerStore::new(path).unwrap()
     }
 
-    fn request(key: Option<&str>) -> CreateScheduleRequest {
-        CreateScheduleRequest {
+    fn request(key: Option<&str>) -> ScheduleRequest {
+        ScheduleRequest {
             action: ScheduleAction::WhatsAppMessage,
             external_id: "candidate-1".to_string(),
             send_at: Utc::now() - chrono::Duration::seconds(5),

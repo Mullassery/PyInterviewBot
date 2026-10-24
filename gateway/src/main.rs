@@ -1,6 +1,7 @@
 mod ai_client;
 mod calendar;
 mod native_voice;
+mod reminders;
 mod scheduler;
 mod session;
 mod state_machine;

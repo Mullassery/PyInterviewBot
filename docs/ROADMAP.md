@@ -30,7 +30,7 @@ Companion documents:
 | `cargo fmt --check` | pass |
 | `cargo clippy --all-targets -- -D warnings` | pass |
 | `cargo clippy --all-targets --features local-neural -- -D warnings` | pass |
-| `cargo test` | **76 passed** (39 gateway + 32 runtime + 5 domain) |
+| `cargo test` | **79 passed** (42 gateway + 32 runtime + 5 domain) |
 | `cargo test -p voice-runtime --features local-neural` | **63 passed** |
 | `uv run ruff check .` | pass |
 | `uv run --group dev python -m pytest -q` | **30 passed** |
@@ -238,8 +238,8 @@ Pending:
 - Outbound template messages, opt-out management, and live Messaging API
   validation.
 - Durable status-callback event persistence.
-- Scheduled outbound actions (implemented: SQLite queue, idempotency, bounded
-  retries, stale-claim recovery, WhatsApp sends and Twilio calls).
+- Scheduled outbound actions and interview reminders are implemented; live
+  Twilio delivery validation remains pending.
 - Distinct voice-note channel metadata/session continuity review.
 - WhatsApp live calling capability verification (below).
 
