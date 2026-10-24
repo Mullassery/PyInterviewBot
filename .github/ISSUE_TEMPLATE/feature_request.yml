@@ -1,11 +1,11 @@
 name: Feature request
-description: Suggest something new or propose closing a gap in ROADMAP_HONEST.md
+description: Suggest something new or propose closing a gap in docs/internal/ROADMAP_HONEST.md
 labels: ["enhancement"]
 body:
   - type: markdown
     attributes:
       value: |
-        Check `ROADMAP_HONEST.md`'s "Not built at all" section first —
+        Check `docs/internal/ROADMAP_HONEST.md`'s "Not built at all" section first —
         many likely requests (multi-language, auth, voice persona
         configuration, resume parsing, WebRTC transport, etc.) are already
         tracked there as known, intentional gaps rather than surprises.

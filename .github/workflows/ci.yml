@@ -51,7 +51,7 @@ jobs:
         run: uv run python -c "from pyinterviewbot_ai.main import app; print('import OK')"
 
       # No `pytest` step yet — ai-service has zero automated tests today
-      # (see ROADMAP_HONEST.md). Running pytest against an empty tests/
+      # (see docs/internal/ROADMAP_HONEST.md). Running pytest against an empty tests/
       # directory would just be a step that always trivially "passes"
       # without checking anything; add it back once real tests exist.
       #

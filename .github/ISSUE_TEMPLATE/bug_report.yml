@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Before filing: check `ROADMAP_HONEST.md` — a lot of gaps are
+        Before filing: check `docs/internal/ROADMAP_HONEST.md` — a lot of gaps are
         documented there as "not built" or "built but untested," not bugs.
 
   - type: dropdown
