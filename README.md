@@ -319,14 +319,15 @@ Routes:
 - `POST /channels/twilio/voice/stream` — signed TwiML `<Connect><Stream>` entry.
 - `GET /channels/twilio/voice/media` — tokenized WebSocket media stream. It
   decodes Twilio μ-law 8kHz audio, runs VAD turn detection at 16kHz, transcribes,
-  advances the interview, and returns μ-law TTS audio.
+  advances the interview, and returns μ-law TTS audio. Playback sends 20ms
+  frames and sends a Twilio `clear` event on detected barge-in.
 
 Signatures use the documented `X-Twilio-Signature` HMAC-SHA1 scheme over the
 public URL plus sorted POST parameters. Call SID and speech text form the
 idempotent event ID. Live calls require an approved Twilio account and public
 HTTPS callback URL; only signed mock-engine webhooks have been verified locally.
-Media Streams are implemented and locally smoke-tested, but live call validation,
-barge-in clearing, backpressure, and provider media limits remain unverified.
+Media Streams are implemented and locally smoke-tested. Live call validation and
+provider-specific media-limit behavior remain unverified.
 
 ## Channel-neutral interview API
 
@@ -369,14 +370,15 @@ Routes:
 - `POST /channels/twilio/voice/stream` — signed TwiML `<Connect><Stream>` entry.
 - `GET /channels/twilio/voice/media` — tokenized WebSocket media stream. It
   decodes Twilio μ-law 8kHz audio, runs VAD turn detection at 16kHz, transcribes,
-  advances the interview, and returns μ-law TTS audio.
+  advances the interview, and returns μ-law TTS audio. Playback sends 20ms
+  frames and sends a Twilio `clear` event on detected barge-in.
 
 Signatures use the documented `X-Twilio-Signature` HMAC-SHA1 scheme over the
 public URL plus sorted POST parameters. Call SID and speech text form the
 idempotent event ID. Live calls require an approved Twilio account and public
 HTTPS callback URL; only signed mock-engine webhooks have been verified locally.
-Media Streams are implemented and locally smoke-tested, but live call validation,
-barge-in clearing, backpressure, and provider media limits remain unverified.
+Media Streams are implemented and locally smoke-tested. Live call validation and
+provider-specific media-limit behavior remain unverified.
 
 ## Channel-neutral interview API
 

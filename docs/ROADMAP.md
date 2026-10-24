@@ -30,7 +30,7 @@ Companion documents:
 | `cargo fmt --check` | pass |
 | `cargo clippy --all-targets -- -D warnings` | pass |
 | `cargo clippy --all-targets --features local-neural -- -D warnings` | pass |
-| `cargo test` | **66 passed** (29 gateway + 32 runtime + 5 domain) |
+| `cargo test` | **67 passed** (30 gateway + 32 runtime + 5 domain) |
 | `cargo test -p voice-runtime --features local-neural` | **63 passed** |
 | `uv run ruff check .` | pass |
 | `uv run --group dev python -m pytest -q` | **30 passed** |
@@ -188,9 +188,8 @@ Implemented:
 
 Pending:
 
-- Twilio Media Streams barge-in (`clear` + playback cancellation), explicit
-  backpressure/pacing tests, and provider media-limit validation.
 - Live Twilio account validation and callback URL registration.
+- Provider-specific Media Streams pacing/backpressure validation under load.
 - Durable call-lifecycle event persistence beyond status logging.
 - Recording/consent configuration for Twilio.`
 

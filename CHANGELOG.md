@@ -44,8 +44,10 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
 - Twilio Media Streams WebSocket: tokenized TwiML `<Connect><Stream>`, μ-law/PCM
   codecs, 8k/16k resampling, VAD turn detection, transcription, interview turn
   advancement, and μ-law TTS playback.
-- Media Streams barge-in/clear, backpressure tests, and live-account validation
-  remain pending.
+- Media Streams barge-in sends a Twilio `clear` event and preserves captured
+  speech; playback uses 20ms μ-law frames.
+- Live-account validation and provider media-limit/backpressure testing remain
+  pending.
 
 ### Added (Phase 7 channel domain)
 

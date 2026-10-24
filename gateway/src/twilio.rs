@@ -31,6 +31,8 @@ use crate::ws_handler::{authorized, AppState};
 
 const CHANNEL: &str = "twilio_voice";
 const MAX_BODY_BYTES: usize = 256 * 1024;
+const ULAW_FRAME_BYTES: usize = 160; // 20ms at 8kHz mono
+const FRAME_PACING_MS: u64 = 20;
 
 #[derive(Clone)]
 pub struct TwilioConfig {
@@ -624,37 +626,99 @@ fn media_message(stream_sid: &str, payload: &str) -> String {
     .to_string()
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PlaybackOutcome {
+    Finished,
+    Interrupted,
+    Closed,
+}
+
+fn clear_message(stream_sid: &str) -> String {
+    json!({"event": "clear", "streamSid": stream_sid}).to_string()
+}
+
+fn decode_media(
+    value: &Value,
+    vad: &mut crate::vad::TurnDetector,
+    capture: &mut Vec<u8>,
+) -> Option<crate::vad::VadEvent> {
+    let payload = value
+        .get("media")
+        .and_then(|media| media.get("payload"))
+        .and_then(Value::as_str)?;
+    let ulaw = STANDARD.decode(payload).ok()?;
+    let pcm8 = ulaw_to_pcm16(&ulaw);
+    let pcm16 = voice_runtime::studio::resample_pcm16(&pcm8, 8_000, 16_000);
+    let events = vad.push_pcm16_capturing(&pcm16, capture);
+    if events.contains(&crate::vad::VadEvent::TurnEnded) {
+        Some(crate::vad::VadEvent::TurnEnded)
+    } else if events.contains(&crate::vad::VadEvent::SpeechStarted) {
+        Some(crate::vad::VadEvent::SpeechStarted)
+    } else {
+        None
+    }
+}
+
 async fn send_pcm_as_ulaw(
     sink: &mut futures_util::stream::SplitSink<WebSocket, Message>,
+    stream: &mut futures_util::stream::SplitStream<WebSocket>,
     stream_sid: &str,
     pcm16_8khz: &[u8],
-) -> bool {
+    vad: &mut crate::vad::TurnDetector,
+    capture: &mut Vec<u8>,
+) -> PlaybackOutcome {
     let ulaw = pcm16_to_ulaw(pcm16_8khz);
-    for chunk in ulaw.chunks(160) {
+    for chunk in ulaw.chunks(ULAW_FRAME_BYTES) {
         let payload = STANDARD.encode(chunk);
         if sink
             .send(Message::Text(media_message(stream_sid, &payload).into()))
             .await
             .is_err()
         {
-            return false;
+            return PlaybackOutcome::Closed;
         }
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        tokio::select! {
+            _ = tokio::time::sleep(std::time::Duration::from_millis(FRAME_PACING_MS)) => {}
+            incoming = stream.next() => {
+                match incoming {
+                    Some(Ok(Message::Text(text))) => {
+                        let Ok(value) = serde_json::from_str::<Value>(&text) else { continue };
+                        match value.get("event").and_then(Value::as_str) {
+                            Some("stop") | Some("closed") => return PlaybackOutcome::Closed,
+                            Some("media")
+                                if decode_media(&value, vad, capture)
+                                    == Some(crate::vad::VadEvent::SpeechStarted) =>
+                            {
+                                let _ = sink.send(Message::Text(clear_message(stream_sid).into())).await;
+                                return PlaybackOutcome::Interrupted;
+                            }
+                            Some("media") => {}
+                            _ => {}
+                        }
+                    }
+                    Some(Ok(Message::Close(_))) | None => return PlaybackOutcome::Closed,
+                    _ => {}
+                }
+            }
+        }
     }
-    true
+    PlaybackOutcome::Finished
 }
 
 async fn speak_text(
     state: &AppState,
     sink: &mut futures_util::stream::SplitSink<WebSocket, Message>,
+    stream: &mut futures_util::stream::SplitStream<WebSocket>,
     stream_sid: &str,
     text: &str,
-) -> bool {
+    vad: &mut crate::vad::TurnDetector,
+    capture: &mut Vec<u8>,
+) -> PlaybackOutcome {
     let mut tts = match state.ai.synthesize_stream(text).await {
         Ok(stream) => stream,
         Err(error) => {
             warn!(?error, "Twilio media TTS failed");
-            return false;
+            return PlaybackOutcome::Closed;
         }
     };
     let mut pcm = Vec::new();
@@ -663,12 +727,12 @@ async fn speak_text(
             Ok(bytes) => pcm.extend_from_slice(&bytes),
             Err(error) => {
                 warn!(?error, "Twilio media TTS stream failed");
-                return false;
+                return PlaybackOutcome::Closed;
             }
         }
     }
     let pcm8 = voice_runtime::studio::resample_pcm16(&pcm, 22_050, 8_000);
-    send_pcm_as_ulaw(sink, stream_sid, &pcm8).await
+    send_pcm_as_ulaw(sink, stream, stream_sid, &pcm8, vad, capture).await
 }
 
 async fn media_socket(
@@ -702,9 +766,19 @@ async fn media_socket(
                     .await
                 {
                     Ok(session) => {
-                        if !speak_text(&state, &mut sink, &stream_sid, &session.question_text).await
+                        match speak_text(
+                            &state,
+                            &mut sink,
+                            &mut stream,
+                            &stream_sid,
+                            &session.question_text,
+                            &mut vad,
+                            &mut utterance,
+                        )
+                        .await
                         {
-                            return;
+                            PlaybackOutcome::Closed => return,
+                            PlaybackOutcome::Finished | PlaybackOutcome::Interrupted => {}
                         }
                     }
                     Err(error) => {
@@ -714,20 +788,12 @@ async fn media_socket(
                 }
             }
             Some("media") => {
-                let Some(payload) = value
-                    .get("media")
-                    .and_then(|media| media.get("payload"))
-                    .and_then(Value::as_str)
-                else {
+                if decode_media(&value, &mut vad, &mut utterance)
+                    != Some(crate::vad::VadEvent::TurnEnded)
+                {
                     continue;
-                };
-                let Ok(ulaw) = STANDARD.decode(payload) else {
-                    continue;
-                };
-                let pcm8 = ulaw_to_pcm16(&ulaw);
-                let pcm16 = voice_runtime::studio::resample_pcm16(&pcm8, 8_000, 16_000);
-                let events = vad.push_pcm16_capturing(&pcm16, &mut utterance);
-                if events.contains(&crate::vad::VadEvent::TurnEnded) {
+                }
+                {
                     let audio = std::mem::take(&mut utterance);
                     vad.reset_turn();
                     let transcript = match state.ai.transcribe(audio).await {
@@ -746,9 +812,19 @@ async fn media_socket(
                         .await
                     {
                         Ok(response) => {
-                            if !speak_text(&state, &mut sink, &stream_sid, &response.ai_text).await
+                            match speak_text(
+                                &state,
+                                &mut sink,
+                                &mut stream,
+                                &stream_sid,
+                                &response.ai_text,
+                                &mut vad,
+                                &mut utterance,
+                            )
+                            .await
                             {
-                                return;
+                                PlaybackOutcome::Closed => return,
+                                PlaybackOutcome::Finished | PlaybackOutcome::Interrupted => {}
                             }
                             if response.is_complete {
                                 let _ = sink.send(Message::Close(None)).await;
@@ -826,6 +902,15 @@ mod tests {
         for chunk in decoded.as_chunks::<2>().0 {
             assert!(i16::from_le_bytes(*chunk).abs() <= 4000);
         }
+    }
+
+    #[test]
+    fn media_frames_are_20ms_and_clear_is_valid_json() {
+        assert_eq!(ULAW_FRAME_BYTES, 160);
+        assert_eq!(FRAME_PACING_MS, 20);
+        let clear: Value = serde_json::from_str(&clear_message("MZ1")).unwrap();
+        assert_eq!(clear["event"], "clear");
+        assert_eq!(clear["streamSid"], "MZ1");
     }
 
     #[test]
