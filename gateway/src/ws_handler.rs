@@ -62,6 +62,7 @@ pub struct AppState {
     pub engines: Arc<EngineCatalog>,
     pub managed_call: Option<Arc<ManagedCallWorkflow>>,
     pub twilio: Option<Arc<crate::twilio::TwilioConfig>>,
+    pub scheduler: Option<crate::scheduler::SchedulerStore>,
 }
 
 pub(crate) fn authorized(
@@ -86,6 +87,7 @@ pub fn router(state: AppState) -> Router {
         .route("/ready", get(ready))
         .merge(crate::native_voice::router())
         .merge(crate::twilio::router())
+        .merge(crate::scheduler::router())
         .with_state(state)
 }
 

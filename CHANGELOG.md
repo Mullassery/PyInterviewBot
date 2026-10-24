@@ -35,6 +35,14 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
 - `/asr/transcribe` payload cap (`PYINTERVIEWBOT_MAX_AUDIO_BYTES`, 413 on
   overflow), plus `/providers` and `/templates` discovery endpoints.
 
+### Added (scheduled outbound actions)
+
+- Durable SQLite scheduler for delayed WhatsApp messages and Twilio calls.
+- Admin API: create/list/cancel schedules, idempotency keys, bounded exponential
+  retries, stale-dispatch recovery, and background worker.
+- Gateway dispatch uses the Twilio adapter; configuration via
+  `SCHEDULER_DB_PATH`, `SCHEDULER_INTERVAL_SECONDS`, and `TWILIO_WHATSAPP_FROM`.
+
 ### Added (Phase 9 WhatsApp)
 
 - Signed WhatsApp inbound text webhook and delivery/read status callback.

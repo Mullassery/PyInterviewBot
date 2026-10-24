@@ -39,6 +39,7 @@ pub struct TwilioConfig {
     pub auth_token: String,
     pub account_sid: Option<String>,
     pub from_number: Option<String>,
+    pub whatsapp_from: Option<String>,
     pub public_base_url: String,
     pub media_ws_base_url: String,
     pub api_base_url: String,
@@ -74,6 +75,9 @@ impl TwilioConfig {
                 .ok()
                 .filter(|value| !value.is_empty()),
             from_number: std::env::var("TWILIO_FROM_NUMBER")
+                .ok()
+                .filter(|value| !value.is_empty()),
+            whatsapp_from: std::env::var("TWILIO_WHATSAPP_FROM")
                 .ok()
                 .filter(|value| !value.is_empty()),
             public_base_url,
@@ -144,6 +148,110 @@ impl TwilioConfig {
             urlencoding::encode(external_id),
             self.start_token(external_id)
         )
+    }
+
+    pub async fn create_call(&self, to: &str, external_id: &str) -> Result<String, String> {
+        let (Some(account_sid), Some(from_number)) =
+            (self.account_sid.as_deref(), self.from_number.as_deref())
+        else {
+            return Err("TWILIO_ACCOUNT_SID and TWILIO_FROM_NUMBER are required".to_string());
+        };
+        let url = self.start_url(external_id);
+        let status_callback = format!("{}/channels/twilio/voice/status", self.public_base_url);
+        let endpoint = format!(
+            "{}/2010-04-01/Accounts/{}/Calls.json",
+            self.api_base_url.trim_end_matches('/'),
+            account_sid
+        );
+        let form = serde_urlencoded::to_string([
+            ("To", to),
+            ("From", from_number),
+            ("Url", url.as_str()),
+            ("StatusCallback", status_callback.as_str()),
+            ("StatusCallbackEvent", "initiated completed"),
+        ])
+        .unwrap_or_default();
+        let response = self
+            .http
+            .post(endpoint)
+            .basic_auth(account_sid, Some(&self.auth_token))
+            .header(
+                axum::http::header::CONTENT_TYPE,
+                "application/x-www-form-urlencoded",
+            )
+            .body(form)
+            .send()
+            .await
+            .map_err(|error| error.to_string())?;
+        if !response.status().is_success() {
+            return Err(format!(
+                "Twilio call creation returned {}",
+                response.status()
+            ));
+        }
+        let value: Value = response.json().await.map_err(|error| error.to_string())?;
+        value
+            .get("sid")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| "Twilio call response missing sid".to_string())
+    }
+
+    pub async fn send_whatsapp(&self, to: &str, body: &str) -> Result<String, String> {
+        let Some(account_sid) = self.account_sid.as_deref() else {
+            return Err("TWILIO_ACCOUNT_SID is required".to_string());
+        };
+        let Some(from) = self.whatsapp_from.as_deref() else {
+            return Err("TWILIO_WHATSAPP_FROM is required".to_string());
+        };
+        if body.trim().is_empty() {
+            return Err("WhatsApp message body is required".to_string());
+        }
+        let to = if to.starts_with("whatsapp:") {
+            to.to_string()
+        } else {
+            format!("whatsapp:{to}")
+        };
+        let from = if from.starts_with("whatsapp:") {
+            from.to_string()
+        } else {
+            format!("whatsapp:{from}")
+        };
+        let endpoint = format!(
+            "{}/2010-04-01/Accounts/{}/Messages.json",
+            self.api_base_url.trim_end_matches('/'),
+            account_sid
+        );
+        let form = serde_urlencoded::to_string([
+            ("To", to.as_str()),
+            ("From", from.as_str()),
+            ("Body", body),
+        ])
+        .unwrap_or_default();
+        let response = self
+            .http
+            .post(endpoint)
+            .basic_auth(account_sid, Some(&self.auth_token))
+            .header(
+                axum::http::header::CONTENT_TYPE,
+                "application/x-www-form-urlencoded",
+            )
+            .body(form)
+            .send()
+            .await
+            .map_err(|error| error.to_string())?;
+        if !response.status().is_success() {
+            return Err(format!(
+                "Twilio WhatsApp send returned {}",
+                response.status()
+            ));
+        }
+        let value: Value = response.json().await.map_err(|error| error.to_string())?;
+        value
+            .get("sid")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| "Twilio WhatsApp response missing sid".to_string())
     }
 }
 
@@ -1024,6 +1132,7 @@ mod tests {
             auth_token: "12345".to_string(),
             account_sid: Some("AC123".to_string()),
             from_number: Some("+15550001111".to_string()),
+            whatsapp_from: Some("whatsapp:+15550001111".to_string()),
             public_base_url: "https://example.test".to_string(),
             media_ws_base_url: "wss://example.test".to_string(),
             api_base_url: "https://api.twilio.test".to_string(),

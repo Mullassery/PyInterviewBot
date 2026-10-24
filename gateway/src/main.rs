@@ -1,5 +1,6 @@
 mod ai_client;
 mod native_voice;
+mod scheduler;
 mod session;
 mod state_machine;
 mod twilio;
@@ -89,6 +90,7 @@ async fn main() {
         StudioConfig::default(),
     ));
     let twilio = twilio::TwilioConfig::from_env().map(Arc::new);
+    let scheduler = scheduler::init_from_env();
     let managed_config = ManagedCallConfig::from_env();
     let managed_call = ManagedCallClient::new(managed_config.clone())
         .ok()
@@ -113,7 +115,15 @@ async fn main() {
         engines,
         managed_call,
         twilio,
+        scheduler,
     };
+    scheduler::spawn_worker(
+        state.clone(),
+        std::env::var("SCHEDULER_INTERVAL_SECONDS")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(5),
+    );
 
     let app = ws_handler::router(state).route("/health", axum::routing::get(|| async { "ok" }));
 

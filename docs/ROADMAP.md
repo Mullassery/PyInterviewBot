@@ -30,7 +30,7 @@ Companion documents:
 | `cargo fmt --check` | pass |
 | `cargo clippy --all-targets -- -D warnings` | pass |
 | `cargo clippy --all-targets --features local-neural -- -D warnings` | pass |
-| `cargo test` | **69 passed** (32 gateway + 32 runtime + 5 domain) |
+| `cargo test` | **72 passed** (35 gateway + 32 runtime + 5 domain) |
 | `cargo test -p voice-runtime --features local-neural` | **63 passed** |
 | `uv run ruff check .` | pass |
 | `uv run --group dev python -m pytest -q` | **30 passed** |
@@ -235,6 +235,8 @@ Pending:
 - Messaging-window and template enforcement.
 - Outbound API/template messages and opt-out management.
 - Durable status-callback event persistence.
+- Scheduled outbound actions (implemented: SQLite queue, idempotency, bounded
+  retries, stale-claim recovery, WhatsApp sends and Twilio calls).
 - Distinct voice-note channel metadata/session continuity review.
 - WhatsApp live calling capability verification (below).
 
@@ -317,6 +319,8 @@ sufficient. Do not implement a text-only bot and call it a live interviewer.
 6. Consent, recording, retention, opt-out, and deletion workflows per channel.
 7. Correlation IDs, latency/error metrics, queue depth, and provider failure
    counters without PII in labels.
+8. Scheduled outbound actions: implemented in Rust with SQLite, idempotency,
+   bounded retries, cancellation, and stale-claim recovery.
 8. Public HTTPS/WSS deployment, rate limits, and abuse controls.
 
 ## Phase 12 — Packaging, CI, and live validation

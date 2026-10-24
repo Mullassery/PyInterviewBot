@@ -340,6 +340,37 @@ message receives the opening question; subsequent messages advance the shared
 interview. Messaging-window/template enforcement and WhatsApp live calling remain
 pending.
 
+## Scheduled outbound actions
+
+A durable SQLite-backed scheduler sends WhatsApp messages or starts Twilio calls
+at a requested time. It is admin-authenticated, idempotent, bounded-retry, and
+survives gateway restarts:
+
+```bash
+# Schedule a WhatsApp message
+curl -X POST http://127.0.0.1:8787/schedules \
+  -H "Authorization: Bearer $GATEWAY_API_KEY" -H "Content-Type: application/json" \
+  -d '{"action":"whatsapp_message","external_id":"+15551234567",
+       "send_at":"2026-10-26T09:00:00Z",
+       "payload":{"body":"Your interview starts in 10 minutes."},
+       "idempotency_key":"invite-candidate-1"}'
+
+# Schedule a Twilio call
+curl -X POST http://127.0.0.1:8787/schedules \
+  -H "Authorization: Bearer $GATEWAY_API_KEY" -H "Content-Type: application/json" \
+  -d '{"action":"twilio_call","external_id":"candidate-1",
+       "send_at":"2026-10-26T10:00:00Z","payload":{"to":"+15551234567"}}'
+
+curl -H "Authorization: Bearer $GATEWAY_API_KEY" http://127.0.0.1:8787/schedules
+curl -X DELETE -H "Authorization: Bearer $GATEWAY_API_KEY" \
+  http://127.0.0.1:8787/schedules/<id>
+```
+
+Configuration: `SCHEDULER_DB_PATH` (default `data/schedules.db`),
+`SCHEDULER_INTERVAL_SECONDS` (default 5), `TWILIO_WHATSAPP_FROM` for WhatsApp
+sends. Failed actions retry with bounded backoff and become terminal after three
+attempts. Stale `dispatching` claims are recovered after five minutes.
+
 ## Channel-neutral interview API
 
 Channel adapters share one interview engine and one durable session mapping:
@@ -401,6 +432,37 @@ Voice notes are downloaded only from allowed Twilio hosts over HTTPS, capped at
 message receives the opening question; subsequent messages advance the shared
 interview. Messaging-window/template enforcement and WhatsApp live calling remain
 pending.
+
+## Scheduled outbound actions
+
+A durable SQLite-backed scheduler sends WhatsApp messages or starts Twilio calls
+at a requested time. It is admin-authenticated, idempotent, bounded-retry, and
+survives gateway restarts:
+
+```bash
+# Schedule a WhatsApp message
+curl -X POST http://127.0.0.1:8787/schedules \
+  -H "Authorization: Bearer $GATEWAY_API_KEY" -H "Content-Type: application/json" \
+  -d '{"action":"whatsapp_message","external_id":"+15551234567",
+       "send_at":"2026-10-26T09:00:00Z",
+       "payload":{"body":"Your interview starts in 10 minutes."},
+       "idempotency_key":"invite-candidate-1"}'
+
+# Schedule a Twilio call
+curl -X POST http://127.0.0.1:8787/schedules \
+  -H "Authorization: Bearer $GATEWAY_API_KEY" -H "Content-Type: application/json" \
+  -d '{"action":"twilio_call","external_id":"candidate-1",
+       "send_at":"2026-10-26T10:00:00Z","payload":{"to":"+15551234567"}}'
+
+curl -H "Authorization: Bearer $GATEWAY_API_KEY" http://127.0.0.1:8787/schedules
+curl -X DELETE -H "Authorization: Bearer $GATEWAY_API_KEY" \
+  http://127.0.0.1:8787/schedules/<id>
+```
+
+Configuration: `SCHEDULER_DB_PATH` (default `data/schedules.db`),
+`SCHEDULER_INTERVAL_SECONDS` (default 5), `TWILIO_WHATSAPP_FROM` for WhatsApp
+sends. Failed actions retry with bounded backoff and become terminal after three
+attempts. Stale `dispatching` claims are recovered after five minutes.
 
 ## Channel-neutral interview API
 
