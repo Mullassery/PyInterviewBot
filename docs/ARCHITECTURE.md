@@ -132,7 +132,7 @@ sequenceDiagram
 Pure function, no IO, 19 unit tests (`gateway/src/state_machine.rs`).
 `Pause`/`Resume`/`Recovered` transitions exist and are unit tested but are
 never emitted by `ws_handler.rs` today (no UI control or code path
-triggers them) — included below for completeness, per `ROADMAP_HONEST.md`.
+triggers them) — included below for completeness, per `internal/ROADMAP_HONEST.md`.
 
 ```mermaid
 stateDiagram-v2

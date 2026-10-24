@@ -22,6 +22,6 @@
 ## Checklist
 
 - [ ] No stub/placeholder code left behind — everything here actually works as described
-- [ ] Updated `ROADMAP_HONEST.md` if this changes what's verified/untested/not-built
+- [ ] Updated `../docs/internal/ROADMAP_HONEST.md` if this changes what's verified/untested/not-built
 - [ ] Updated `CHANGELOG.md` under `[Unreleased]`
 - [ ] No secrets, API keys, or credentials in the diff

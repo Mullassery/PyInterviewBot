@@ -2,7 +2,7 @@
 
 This is the disclosure doc: what's actually verified working, what's built
 but unverified, what's flat-out not built yet, and what's broken in CI.
-Cross-reference with [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the
+Cross-reference with [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) for the
 architectural rationale behind the scope cuts.
 
 Last updated: 2026-09-22, after an independent OSS-maturity audit pass that

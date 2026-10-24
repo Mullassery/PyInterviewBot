@@ -34,7 +34,7 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
 
 ### Documentation
 
-- `ROADMAP_HONEST.md` updated with a security review (CORS wildcard on
+- `docs/internal/ROADMAP_HONEST.md` updated with a security review (CORS wildcard on
   `ai-service`, no HTTP client timeout in the gateway's `AiClient`, no
   `pip-audit` coverage) and confirmation that `cargo test` (19/19),
   `cargo clippy`, `cargo fmt --check`, `cargo audit`, `ruff check`,
@@ -75,7 +75,7 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
   (`cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`),
   ai-service (`uv sync`, `ruff check`, an import sanity check), and
   candidate-client (`tsc --noEmit`, `npm run build`).
-- `ROADMAP_HONEST.md`: disclosure of what's verified working, built-but-
+- `docs/internal/ROADMAP_HONEST.md`: disclosure of what's verified working, built-but-
   untested, and not built at all.
 
 ### Fixed

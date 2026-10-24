@@ -5,7 +5,6 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/pyinterviewbot-ai)](https://pypi.org/project/pyinterviewbot-ai/)
 [![CI](https://github.com/Mullassery/PyInterviewBot/actions/workflows/ci.yml/badge.svg)](https://github.com/Mullassery/PyInterviewBot/actions/workflows/ci.yml)
-[![Graphify](https://img.shields.io/badge/Graphify-knowledge%20graph-blue)](https://github.com/Graphify-Labs/graphify)
 
 ## What it is
 
@@ -51,7 +50,7 @@ This platform:                Listen → Understand → Probe → Verify → Ass
 
 - **Not a production product.** This is a working MVP slice with one demo scenario (a
   "Senior AI Solution Architect" RAG-architecture interview) that runs genuinely end-to-end
-  against real local models. See [`ROADMAP_HONEST.md`](ROADMAP_HONEST.md) for exactly what's
+  against real local models. See [`docs/internal/ROADMAP_HONEST.md`](docs/internal/ROADMAP_HONEST.md) for exactly what's
   tested, what's built-but-unverified, and what isn't built yet.
 - **Not remotely deployable as-is.** Per [`SECURITY.md`](SECURITY.md) there is no auth,
   CORS is a wildcard, and there is no TLS.
@@ -68,7 +67,7 @@ This platform:                Listen → Understand → Probe → Verify → Ass
 
 **Working MVP / early prototype.** Version 0.1.0. The single demo scenario is real and
 runs end-to-end; everything beyond it should be treated as unverified. See
-[`ROADMAP_HONEST.md`](ROADMAP_HONEST.md) and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+[`docs/internal/ROADMAP_HONEST.md`](docs/internal/ROADMAP_HONEST.md) and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 Changes are tracked in [CHANGELOG.md](CHANGELOG.md).
 
 ## Installation
@@ -195,7 +194,7 @@ docs/
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — layered design, what's real vs. simplified,
   and the two timing bugs found and fixed while building the integration test.
-- [ROADMAP_HONEST.md](ROADMAP_HONEST.md) — exactly what's tested, built-but-unverified, and
+- [docs/internal/ROADMAP_HONEST.md](docs/internal/ROADMAP_HONEST.md) — exactly what's tested, built-but-unverified, and
   not built.
 - [CHANGELOG.md](CHANGELOG.md) — release history.
 - [SECURITY.md](SECURITY.md) — the current, concrete security gaps.
@@ -208,7 +207,7 @@ docs/
 **Rejected / deferred:**
 - Production hiring without compliance review.
 
-Full shipped/blocked/rejected detail: [`QUEUE_STATUS.md`](QUEUE_STATUS.md).
+Full shipped/blocked/rejected detail: [`docs/internal/QUEUE_STATUS.md`](docs/internal/QUEUE_STATUS.md).
 
 ## Contributing
 

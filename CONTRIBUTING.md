@@ -1,7 +1,7 @@
 # Contributing
 
 PyInterviewBot is a working MVP slice, not a mature project with a
-governance process — see [`ROADMAP_HONEST.md`](ROADMAP_HONEST.md) for
+governance process — see [`docs/internal/ROADMAP_HONEST.md`](docs/internal/ROADMAP_HONEST.md) for
 exactly what's built, tested, and missing before you start.
 
 ## Before you open a PR
@@ -11,7 +11,7 @@ exactly what's built, tested, and missing before you start.
   have a deliberate protocol boundary — the candidate-facing WebSocket
   protocol has no message type for a transcript, score, or evidence, on
   purpose. Don't add one without reading why.
-- Check `ROADMAP_HONEST.md`'s "Not built at all" section before assuming
+- Check `docs/internal/ROADMAP_HONEST.md`'s "Not built at all" section before assuming
   something is a small gap — several items there are intentionally out of
   scope for this slice, not oversights.
 - Open an issue first for anything beyond a small fix, so we don't duplicate
@@ -48,7 +48,7 @@ npm run build
 ```
 
 `ai-service` has **zero automated tests today** (no `tests/` directory
-exists — see `ROADMAP_HONEST.md`). If you touch `asr.py`, `tts.py`,
+exists — see `docs/internal/ROADMAP_HONEST.md`). If you touch `asr.py`, `tts.py`,
 `llm.py`, `agent.py`, or `db.py`, at minimum run the real end-to-end
 integration test before opening a PR:
 
@@ -65,7 +65,7 @@ This drives the real gateway WebSocket protocol with real synthesized
 audio against real local models (no mocks) — it's the only thing standing
 in for a Python test suite right now. Adding real `pytest` coverage for
 `ai-service` is one of the most valuable contributions this project can
-currently take (see `ROADMAP_HONEST.md`).
+currently take (see `docs/internal/ROADMAP_HONEST.md`).
 
 ## Code style
 
@@ -83,7 +83,7 @@ currently take (see `ROADMAP_HONEST.md`).
   real-timed e2e test matters more than unit tests for this kind of bug).
 - Don't leave placeholder/stub code that pretends to work — either
   implement a feature fully or don't include it.
-- Update `ROADMAP_HONEST.md` if your change moves something from
+- Update `docs/internal/ROADMAP_HONEST.md` if your change moves something from
   "not built" / "built but untested" into "verified working," or if it
   introduces a new gap.
 
