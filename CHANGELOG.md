@@ -35,6 +35,15 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
 - `/asr/transcribe` payload cap (`PYINTERVIEWBOT_MAX_AUDIO_BYTES`, 413 on
   overflow), plus `/providers` and `/templates` discovery endpoints.
 
+### Security (2026-10-25, hardening increment)
+
+- Per-session tokens: `POST /sessions` returns a token, only its hash is
+  stored, the gateway forwards it on turns, and
+  `PYINTERVIEWBOT_REQUIRE_SESSION_TOKEN=1` enforces it.
+- Bounded in-process sliding-window rate limiting for ai-service, keyed by API
+  key or client IP (`PYINTERVIEWBOT_RATE_LIMIT`,
+  `PYINTERVIEWBOT_RATE_WINDOW_SECONDS`).
+
 ### Changed (2026-10-25)
 
 - Removed external trademarked/upstream product names and adapter paths from

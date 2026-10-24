@@ -29,6 +29,8 @@ gaps) and `docs/CAPABILITY_MATRIX.md` (provider/licence boundaries).
 | Risk | Control |
 |---|---|
 | Unauthenticated API access | API key (`X-API-Key` or Bearer) or loopback-only fail-closed; `/health` exempt |
+| Session-turn access | Per-session token returned at creation, hash stored at rest, forwarded by the gateway; optional enforcement |
+| Request flooding | In-process sliding-window limiter per API key/IP; `/health` exempt |
 | Gateway-to-ai auth break | Gateway forwards `AI_SERVICE_API_KEY`/`PYINTERVIEWBOT_API_KEY`; tested |
 | Oversized audio / memory growth | Per-turn byte cap, WebSocket frame/message cap, `/asr/transcribe` 413 limit |
 | Cross-origin browser reads | Configurable CORS allowlist; no wildcard default |
@@ -44,11 +46,12 @@ gaps) and `docs/CAPABILITY_MATRIX.md` (provider/licence boundaries).
 ## Open risks
 
 - No TLS/WSS termination in this repo. Run behind a trusted reverse proxy.
-- One global API key; no per-session authorization or tenant isolation. Any
-  authenticated client can read any session UUID. Do not expose the recruiter
-  API across trust boundaries until session-scoped tokens exist.
-- No rate limiting or quotas. Add at the reverse proxy or a gateway middleware
-  before any network deployment.
+- One global API key; session tokens protect `/turn` when enforcement is on, but
+  any global-key holder can still read any session UUID. There is no tenant
+  isolation or scoped recruiter key. Do not expose the recruiter API across
+  trust boundaries yet.
+- Rate limiting is per-process only. Add a shared proxy/gateway limit and
+  quotas before network deployment.
 - The interview WebSocket flow does not record audio. The native studio has an
   explicit in-memory recording API with clear/session-close deletion, but no
   disk retention policy or consent UI for that endpoint yet.

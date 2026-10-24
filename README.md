@@ -169,10 +169,18 @@ Every non-health ai-service endpoint requires authentication:
   anyone who can reach the port.
 - `DELETE /sessions/{id}` deletes the session, transcript, evidence, and review
   rows for a retention request.
+- `POST /sessions` returns a per-session `session_token` (stored as a SHA-256
+  hash). The gateway forwards it on `/turn`. Set
+  `PYINTERVIEWBOT_REQUIRE_SESSION_TOKEN=1` to reject turns that lack it, even
+  when the caller has the global API key.
+- `PYINTERVIEWBOT_RATE_LIMIT` (requests per `PYINTERVIEWBOT_RATE_WINDOW_SECONDS`,
+  default 120/60s) applies per API key or client IP. `0` disables the
+  in-process limiter; use a shared proxy limit for multi-worker deployments.
 
 The gateway forwards its ai-service key automatically. `/health` remains
-unauthenticated for probes. This is still one global key, not per-session
-authorization; see [`docs/SECURITY_MODEL.md`](docs/SECURITY_MODEL.md).
+unauthenticated for probes. Session tokens are defense-in-depth, not a
+replacement for scoped/tenant authorization; see
+[`docs/SECURITY_MODEL.md`](docs/SECURITY_MODEL.md).
 
 ## Provider selection and mock mode
 

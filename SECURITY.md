@@ -25,11 +25,12 @@ committed — and this document must be updated to say so explicitly.
 
 - **Authentication exists, but authorization is coarse.** The gateway and
   ai-service enforce a shared API key (or loopback-only fail-closed when the
-  key is unset). `/health` is exempt. However, there is no per-session
-  capability token or tenant isolation: any authenticated client can read or
+  key is unset). `/health` is exempt. Session creation now returns a
+  per-session token, the gateway forwards it on turns, and
+  `PYINTERVIEWBOT_REQUIRE_SESSION_TOKEN=1` enforces it. However, there is still
+  no tenant isolation or scoped admin key: any global-key holder can read or
   delete any session UUID, including transcripts, evidence, reports, and
-  reviews. Do not expose the recruiter API across a trust boundary until
-  session-scoped authorization exists.
+  reviews. Do not expose the recruiter API across a trust boundary yet.
 - **CORS wildcard — fixed 2026-09-22.** `ai-service/src/pyinterviewbot_ai/main.py`
   used to set `allow_origins=["*"]`, letting any page in a user's browser
   script a request to `http://127.0.0.1:8000/sessions`. It now reads a
@@ -41,8 +42,10 @@ committed — and this document must be updated to say so explicitly.
   This is a mitigation, not authentication — the endpoints are still open
   to any *same-allowed-origin or direct (non-browser)* client, so the
   "no authentication or authorization anywhere" gap below still applies.
-- **No rate limiting or abuse protection** on any endpoint, gateway or
-  ai-service.
+- **Rate limiting is partial.** ai-service has a bounded in-process sliding
+  window (`PYINTERVIEWBOT_RATE_LIMIT`, default 120/60s), but it is per worker
+  and not shared. There is no gateway-level limiter, quota, or distributed
+  abuse protection yet.
 - **No TLS.** Both the gateway (`ws://`) and ai-service (`http://`) default
   to plaintext on `127.0.0.1`. There is no WSS/HTTPS configuration anywhere
   in this repo.
