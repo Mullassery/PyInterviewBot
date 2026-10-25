@@ -260,3 +260,50 @@ class ResumeResponse(BaseModel):
     resume_deadline: str | None
     resume_count: int
     is_complete: bool
+
+class InterviewMetadata(BaseModel):
+    session_id: UUID
+    position_title: str | None = None
+    candidate_name: str | None = None
+    candidate_email: str | None = None
+    interviewer_name: str | None = None
+    interviewer_email: str | None = None
+    scheduled_at: str | None = None
+    duration_minutes: int = 60
+    status: str = "scheduled"
+    location: str | None = None
+    meeting_url: str | None = None
+    notes: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class InterviewMetadataRequest(BaseModel):
+    position_title: str | None = None
+    candidate_name: str | None = None
+    candidate_email: str | None = None
+    interviewer_name: str | None = None
+    interviewer_email: str | None = None
+    scheduled_at: str | None = None
+    duration_minutes: int = 60
+    status: str = "scheduled"
+    location: str | None = None
+    meeting_url: str | None = None
+    notes: str | None = None
+
+
+class InterviewMetadataResponse(BaseModel):
+    session_id: UUID
+    position_title: str | None = None
+    candidate_name: str | None = None
+    candidate_email: str | None = None
+    interviewer_name: str | None = None
+    interviewer_email: str | None = None
+    scheduled_at: str | None = None
+    duration_minutes: int = 60
+    status: str
+    location: str | None = None
+    meeting_url: str | None = None
+    notes: str | None = None
+    created_at: str
+    updated_at: str

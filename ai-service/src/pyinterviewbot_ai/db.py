@@ -105,6 +105,26 @@ CREATE TABLE IF NOT EXISTS review_corrections (
     note TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+
+
+CREATE TABLE IF NOT EXISTS interview_metadata (
+    session_id TEXT PRIMARY KEY REFERENCES sessions(id),
+    position_title TEXT,
+    candidate_name TEXT,
+    candidate_email TEXT,
+    interviewer_name TEXT,
+    interviewer_email TEXT,
+    scheduled_at TEXT,
+    duration_minutes INTEGER DEFAULT 60,
+    status TEXT DEFAULT 'scheduled',
+    location TEXT,
+    meeting_url TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+
 """
 
 
@@ -558,3 +578,118 @@ async def increment_resume_count(session_id: UUID) -> None:
             (str(session_id),),
         )
         await db.commit()
+
+async def create_interview_metadata(
+    session_id: UUID,
+    metadata: dict
+) -> None:
+    """Create or update interview metadata for a session."""
+    async with connect() as db:
+        now = _now()
+        await db.execute(
+            """INSERT INTO interview_metadata 
+            (session_id, position_title, candidate_name, candidate_email, 
+             interviewer_name, interviewer_email, scheduled_at, duration_minutes,
+             status, location, meeting_url, notes, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(session_id) DO UPDATE SET
+                position_title=excluded.position_title,
+                candidate_name=excluded.candidate_name,
+                candidate_email=excluded.candidate_email,
+                interviewer_name=excluded.interviewer_name,
+                interviewer_email=excluded.interviewer_email,
+                scheduled_at=excluded.scheduled_at,
+                duration_minutes=excluded.duration_minutes,
+                status=excluded.status,
+                location=excluded.location,
+                meeting_url=excluded.meeting_url,
+                notes=excluded.notes,
+                updated_at=excluded.updated_at""",
+            (
+                session_id,
+                metadata.get('position_title'),
+                metadata.get('candidate_name'),
+                metadata.get('candidate_email'),
+                metadata.get('interviewer_name'),
+                metadata.get('interviewer_email'),
+                metadata.get('scheduled_at'),
+                metadata.get('duration_minutes', 60),
+                metadata.get('status', 'scheduled'),
+                metadata.get('location'),
+                metadata.get('meeting_url'),
+                metadata.get('notes'),
+                _now(),
+                _now()
+            )
+        )
+        await db.commit()
+
+
+async def get_interview_metadata(session_id: UUID) -> dict | None:
+    """Get interview metadata for a session."""
+    async with connect() as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM interview_metadata WHERE session_id = ?",
+            (str(session_id),)
+        )
+        row = await cursor.fetchone()
+        if row:
+            return dict(row)
+        return None
+
+
+async def update_interview_metadata(
+    session_id: UUID,
+    metadata: dict
+) -> bool:
+    """Update interview metadata for a session."""
+    async with connect() as db:
+        fields = []
+        values = []
+        allowed_fields = [
+            'position_title', 'candidate_name', 'candidate_email',
+            'interviewer_name', 'interviewer_email', 'scheduled_at',
+            'duration_minutes', 'status', 'location', 'meeting_url', 'notes'
+        ]
+        for key, value in metadata.items():
+            if key in allowed_fields and value is not None:
+                fields.append(f"{key} = ?")
+                values.append(value)
+        if not fields:
+            return False
+        fields.append("updated_at = ?")
+        values.append(_now())
+        values.append(session_id)
+        async with connect() as db:
+            await db.execute(
+                f"UPDATE interview_metadata SET {', '.join(fields)} WHERE session_id = ?",
+                values
+            )
+            await db.commit()
+        return True
+
+
+async def delete_interview_metadata(session_id: UUID) -> bool:
+    """Delete interview metadata for a session."""
+    async with connect() as db:
+        cursor = await db.execute(
+            "DELETE FROM interview_metadata WHERE session_id = ?",
+            (str(session_id),)
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def get_interview_metadata(session_id: UUID) -> dict | None:
+    """Get interview metadata for a session."""
+    async with connect() as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM interview_metadata WHERE session_id = ?",
+            (str(session_id),)
+        )
+        row = await cursor.fetchone()
+        if row:
+            return dict(row)
+        return None
