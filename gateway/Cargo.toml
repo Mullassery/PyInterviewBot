@@ -14,7 +14,7 @@ bytes = "1.12.1"
 chrono = { version = "0.4.45", features = ["serde"] }
 earshot = "1.2.2"
 futures-util = "0.3.34"
-hmac = "0.12.1"
+hmac = "0.13.0"
 interview-domain = { path = "../interview-domain" }
 reqwest = { version = "0.13.5", features = ["json", "stream"] }
 rusqlite = { version = "0.41.0", features = ["bundled"] }
