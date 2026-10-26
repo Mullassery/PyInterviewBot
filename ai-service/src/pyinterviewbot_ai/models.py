@@ -16,6 +16,7 @@ RedFlagSeverity = Literal["low", "medium", "high"]
 ChannelName = Literal[
     "web",
     "twilio_voice",
+    "vapi",
     "whatsapp_text",
     "whatsapp_voice_note",
     "teams",

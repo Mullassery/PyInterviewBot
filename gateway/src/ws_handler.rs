@@ -61,6 +61,7 @@ pub struct AppState {
     pub studio: Arc<SpeechStudio>,
     pub engines: Arc<EngineCatalog>,
     pub managed_call: Option<Arc<ManagedCallWorkflow>>,
+    pub calls: Option<Arc<crate::calls::CallWorkflow>>,
     pub twilio: Option<Arc<crate::twilio::TwilioConfig>>,
     pub scheduler: Option<crate::scheduler::SchedulerStore>,
     pub calendar: Option<std::sync::Arc<crate::calendar::CalendarClient>>,
@@ -88,6 +89,7 @@ pub fn router(state: AppState) -> Router {
         .route("/ws/interview", get(ws_upgrade))
         .route("/ready", get(ready))
         .merge(crate::native_voice::router())
+        .merge(crate::calls::router())
         .merge(crate::twilio::router())
         .merge(crate::scheduler::router())
         .merge(crate::calendar::router())

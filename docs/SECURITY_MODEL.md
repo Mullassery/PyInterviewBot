@@ -61,6 +61,14 @@ gaps) and `docs/CAPABILITY_MATRIX.md` (provider/licence boundaries).
   disk retention policy or consent UI for that endpoint yet.
 - No SSRF-heavy URL fetching in the current paths; managed-call base URLs are
   operator-configured. Do not let candidates supply provider URLs.
+- The canonical call DB (`GATEWAY_CALL_DB_PATH`) is a separate SQLite store with
+  one writer, the gateway. Restrict filesystem permissions to the gateway user;
+  do not share it over a network filesystem or open it from Python. Backups
+  contain call metadata and provider call IDs, not provider secrets or media.
+- `/calls` uses the gateway API key. Twilio status/inbound webhooks use request
+  signature verification; managed-call webhooks require Bearer/HMAC
+  verification and fail closed without a configured secret. Do not expose raw
+  call state to the candidate client.
 - `pip-audit` now reports no known vulnerabilities; CI runs dependency audits.
 - The gateway audit trail covers provider/scheduler/calendar/webhook actions.
   AI-service reviewer corrections and deletion endpoints are not yet audited.

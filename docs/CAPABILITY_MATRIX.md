@@ -18,6 +18,7 @@ distribution or commercial use.
 | Bounded audio / capacity | Yes: per-session bytes, max sessions, text limit, idle sweep | Yes: gateway per-turn cap + ai-service ASR body cap |
 | Event normalization | Yes: sequenced typed events | HTTP/gateway control messages |
 | Managed-call workflow | Yes: server-side create/get/end, webhook auth, idempotent events | Not used |
+| Canonical call lifecycle | Yes: gateway-owned SQLite, dedup/ordered events, unmatched replay, optimistic versions, retention | Interview-owned channel events only; Python must not write call state |
 | Telephony / WebRTC | No (transport-independent core) | No (raw WebSocket PCM16) |
 | Offline / no account | Yes | Yes (after models installed) |
 | Status in this repo | Implemented; mock and local neural paths tested | Working, tested |
@@ -33,3 +34,21 @@ distribution or commercial use.
   interview sequencing/evidence. Keep private credentials off clients.
 - Keep interview sequencing, evidence, reports, and retention ownership inside
   PyInterviewBot regardless of provider.
+
+## Call adapter capabilities (2026-10-26)
+
+These are **adapter** capabilities, not vendor marketing claims. A provider is
+selected only when configured and when it satisfies every requirement; there is
+no silent downgrade.
+
+| Provider | Inbound | Outbound | Realtime audio | Messaging | Voice notes | Streaming transcript | Final transcript | Recording | Transfer | Meeting join | Meeting transcript | Tool calls |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Native | no | no | yes | no | no | yes | yes | yes | no | no | no | no |
+| Twilio | yes | yes | yes | yes | yes | no | yes | no | no | no | no | no |
+| Vapi | yes | yes | yes | no | no | yes | yes | no | no | no | no | yes |
+| WhatsApp | no | no | no | yes | yes | no | yes | no | no | no | no | no |
+| Teams | no | no | no | no | no | no | no | no | no | yes | no | no |
+
+Teams remains scheduling-only via Graph `teamsForBusiness`; no autonomous join
+or transcript ingestion. WhatsApp live calling remains blocked/unverified.
+Twilio/Vapi/WhatsApp/Recording rows are contract-tested, not live-verified.

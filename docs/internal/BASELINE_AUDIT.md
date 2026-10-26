@@ -21,7 +21,7 @@ This audit is based on source, tests, CI, and local command output — not READM
 | `cargo fmt --check` | pass |
 | `cargo clippy --all-targets -- -D warnings` | pass |
 | `cargo test` | 20 passed |
-| `uv run ruff check .` | pass |
+| `uv run ruff check .` | pass (historical baseline) |
 | `uv run --group dev python -m pytest -q` | 5 passed (auth + documents only) |
 | `npm run build` / `npx tsc --noEmit` | pass |
 
@@ -65,3 +65,35 @@ provider neutrality + deterministic mock flow + evidence-linked reporting +
 transport hardening, followed by native Rust speech-studio and managed-call
 workflows. WebRTC/telephony and GPU inference were not attempted without a
 design partner.
+
+## 2026-10-26 call-state verification
+
+Canonical call state is now implemented in `gateway/src/calls.rs` with domain
+contracts in `interview-domain/src/call.rs`. The gateway is the sole writer of
+the dedicated call SQLite database; ai-service must not write it.
+
+Commands run from the repository root unless noted:
+
+| Command | Result |
+|---|---|
+| `cargo fmt --all` | applied |
+| `cargo clippy --workspace --all-targets -- -D warnings` | pass |
+| `cargo test --workspace` | **101 passed** (56 gateway + 32 voice-runtime + 13 interview-domain) |
+| `uv run ruff check .` (from `ai-service`) | **not clean**: 94 pre-existing violations, mostly `scripts/e2e_ws_test.py` |
+| `uv run ruff check <changed files>` | only pre-existing `N818`/`D209` in touched package files; new test code clean |
+| `uv run --group dev python -m pytest -q` (from `ai-service`) | **58 passed**, 2 dependency deprecation warnings |
+
+Additional verified behavior:
+
+- SQLite schema v1, WAL, foreign keys, 5s busy timeout, `user_version`.
+- Unique provider call IDs and idempotency keys.
+- Event dedup, mapped sequences, terminal-state protection, unmatched replay.
+- Optimistic versions and shortest-path transitions.
+- Twilio signed inbound/status/outbound correlation and Vapi-compatible webhook
+  mapping are code/contract tested.
+- `vapi` is a supported ai-service channel identifier.
+
+Not verified: live Twilio voice/media, live Vapi calls, live WhatsApp calls,
+Teams join/transcripts, backup/restore against production-sized data, and
+multi-replica operation. SQLite remains single-node only. See
+[`docs/CALL_STATE.md`](../CALL_STATE.md).

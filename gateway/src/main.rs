@@ -1,6 +1,7 @@
 mod ai_client;
 mod audit;
 mod calendar;
+mod calls;
 mod native_voice;
 mod reminders;
 mod scheduler;
@@ -15,6 +16,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use ai_client::AiClient;
+use interview_domain::call::{CallProvider, ProviderRegistration, ProviderRegistry};
 use session::{SessionConfig, DEFAULT_MAX_UTTERANCE_BYTES};
 use tracing_subscriber::EnvFilter;
 use vad::DEFAULT_SILENCE_MS_TO_END_TURN;
@@ -108,6 +110,46 @@ async fn main() {
             ))
         });
 
+    let call_registry = ProviderRegistry::new(vec![
+        ProviderRegistration::new(CallProvider::Twilio, twilio.is_some()),
+        ProviderRegistration::new(CallProvider::Vapi, managed_call.is_some()),
+        ProviderRegistration::new(
+            CallProvider::WhatsApp,
+            twilio
+                .as_ref()
+                .is_some_and(|config| config.whatsapp_from.is_some()),
+        ),
+        ProviderRegistration::new(CallProvider::Native, true),
+        ProviderRegistration::new(CallProvider::Teams, false),
+    ]);
+    let calls = calls::CallWorkflow::from_env(call_registry);
+    if let Some(calls) = &calls {
+        if let Some(days) = std::env::var("GATEWAY_CALL_RETENTION_DAYS")
+            .ok()
+            .and_then(|value| value.parse::<i64>().ok())
+            .filter(|days| *days > 0)
+        {
+            let cutoff = (chrono::Utc::now() - chrono::Duration::days(days)).timestamp_millis();
+            let cutoff = cutoff.max(0) as u64;
+            match calls.purge_terminal_before(cutoff) {
+                Ok(deleted) => tracing::info!(deleted, "purged expired terminal calls"),
+                Err(error) => tracing::warn!(%error, "failed to purge expired calls"),
+            }
+        }
+        if let Some(hours) = std::env::var("GATEWAY_CALL_UNMATCHED_RETENTION_HOURS")
+            .ok()
+            .and_then(|value| value.parse::<i64>().ok())
+            .filter(|hours| *hours > 0)
+        {
+            let cutoff = (chrono::Utc::now() - chrono::Duration::hours(hours)).timestamp_millis();
+            let cutoff = cutoff.max(0) as u64;
+            match calls.purge_unmatched_before(cutoff) {
+                Ok(deleted) => tracing::info!(deleted, "purged expired unmatched call events"),
+                Err(error) => tracing::warn!(%error, "failed to purge unmatched call events"),
+            }
+        }
+    }
+
     let state = AppState {
         ai: AiClient::new(ai_service_url.clone())
             .with_api_key(ai_service_api_key)
@@ -119,6 +161,7 @@ async fn main() {
         studio,
         engines,
         managed_call,
+        calls,
         twilio,
         scheduler,
         calendar,

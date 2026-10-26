@@ -177,14 +177,33 @@ impl TwilioConfig {
         )
     }
 
+    fn status_callback_url(&self, call_ref: Option<uuid::Uuid>) -> String {
+        match call_ref {
+            Some(call_ref) => format!(
+                "{}/channels/twilio/voice/status?call_id={}",
+                self.public_base_url, call_ref
+            ),
+            None => format!("{}/channels/twilio/voice/status", self.public_base_url),
+        }
+    }
+
     pub async fn create_call(&self, to: &str, external_id: &str) -> Result<String, String> {
+        self.create_call_with_ref(to, external_id, None).await
+    }
+
+    pub async fn create_call_with_ref(
+        &self,
+        to: &str,
+        external_id: &str,
+        call_ref: Option<uuid::Uuid>,
+    ) -> Result<String, String> {
         let (Some(account_sid), Some(from_number)) =
             (self.account_sid.as_deref(), self.from_number.as_deref())
         else {
             return Err("TWILIO_ACCOUNT_SID and TWILIO_FROM_NUMBER are required".to_string());
         };
         let url = self.start_url(external_id);
-        let status_callback = format!("{}/channels/twilio/voice/status", self.public_base_url);
+        let status_callback = self.status_callback_url(call_ref);
         let endpoint = format!(
             "{}/2010-04-01/Accounts/{}/Calls.json",
             self.api_base_url.trim_end_matches('/'),
@@ -195,7 +214,10 @@ impl TwilioConfig {
             ("From", from_number),
             ("Url", url.as_str()),
             ("StatusCallback", status_callback.as_str()),
-            ("StatusCallbackEvent", "initiated completed"),
+            (
+                "StatusCallbackEvent",
+                "initiated ringing answered completed",
+            ),
         ])
         .unwrap_or_default();
         let response = self
@@ -222,6 +244,34 @@ impl TwilioConfig {
             .and_then(Value::as_str)
             .map(str::to_string)
             .ok_or_else(|| "Twilio call response missing sid".to_string())
+    }
+
+    pub async fn end_call(&self, call_sid: &str) -> Result<(), String> {
+        let Some(account_sid) = self.account_sid.as_deref() else {
+            return Err("TWILIO_ACCOUNT_SID is required".to_string());
+        };
+        let endpoint = format!(
+            "{}/2010-04-01/Accounts/{}/Calls/{}.json",
+            self.api_base_url.trim_end_matches('/'),
+            account_sid,
+            urlencoding::encode(call_sid)
+        );
+        let response = self
+            .http
+            .post(endpoint)
+            .basic_auth(account_sid, Some(&self.auth_token))
+            .header(
+                axum::http::header::CONTENT_TYPE,
+                "application/x-www-form-urlencoded",
+            )
+            .body("Status=completed")
+            .send()
+            .await
+            .map_err(|error| error.to_string())?;
+        if !response.status().is_success() {
+            return Err(format!("Twilio call update returned {}", response.status()));
+        }
+        Ok(())
     }
 
     pub async fn send_whatsapp(&self, to: &str, body: &str) -> Result<String, String> {
@@ -409,6 +459,42 @@ pub fn router() -> Router<AppState> {
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
 }
 
+fn record_twilio_status(
+    state: &AppState,
+    call_sid: &str,
+    call_status: &str,
+    call_id: Option<uuid::Uuid>,
+) {
+    let Some(workflow) = state.calls.as_ref() else {
+        return;
+    };
+    let Some(target) = crate::calls::twilio_target(call_status) else {
+        return;
+    };
+    let event_id = format!("twilio:{call_sid}:{call_status}");
+    match workflow.apply_state(
+        interview_domain::call::CallProvider::Twilio,
+        call_id,
+        Some(call_sid),
+        &event_id,
+        target,
+        crate::calls::twilio_sequence(call_status),
+        crate::calls::now_ms(),
+    ) {
+        Ok(outcome) => {
+            info!(
+                call_sid,
+                call_status,
+                ?outcome,
+                "persisted Twilio call status"
+            );
+        }
+        Err(error) => {
+            warn!(%error, call_sid, call_status, "failed to persist Twilio call status");
+        }
+    }
+}
+
 async fn inbound(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -432,6 +518,19 @@ async fn inbound(
     let external_id = param(&params, "From");
     if external_id.is_empty() {
         return twiml("<Say>We could not identify this call.</Say><Hangup/>");
+    }
+    let call_sid = param(&params, "CallSid");
+    if let (Some(workflow), false) = (state.calls.as_ref(), call_sid.is_empty()) {
+        match workflow.register_inbound(
+            interview_domain::call::CallProvider::Twilio,
+            interview_domain::call::CallTransport::Pstn,
+            &call_sid,
+            None,
+            crate::calls::now_ms(),
+        ) {
+            Ok(call) => info!(call_id = %call.id, "registered inbound Twilio call"),
+            Err(error) => warn!(%error, "failed to register inbound Twilio call"),
+        }
     }
     match state
         .ai
@@ -512,6 +611,7 @@ async fn turn(
 async fn status(
     State(state): State<AppState>,
     headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
     uri: axum::http::Uri,
     body: Bytes,
 ) -> Response {
@@ -529,11 +629,13 @@ async fn status(
     ) else {
         return StatusCode::FORBIDDEN.into_response();
     };
-    info!(
-        call_sid = %param(&params, "CallSid"),
-        status = %param(&params, "CallStatus"),
-        "Twilio call status"
-    );
+    let call_sid = param(&params, "CallSid");
+    let call_status = param(&params, "CallStatus");
+    info!(call_sid = %call_sid, status = %call_status, "Twilio call status");
+    let call_id = query
+        .get("call_id")
+        .and_then(|value| uuid::Uuid::parse_str(value).ok());
+    record_twilio_status(&state, &call_sid, &call_status, call_id);
     StatusCode::NO_CONTENT.into_response()
 }
 
@@ -586,6 +688,7 @@ struct CreateCallRequest {
     to: String,
     external_id: String,
     template_id: Option<String>,
+    call_ref: Option<uuid::Uuid>,
 }
 
 async fn create_call(
@@ -600,15 +703,6 @@ async fn create_call(
     let Some(config) = twilio_for(&state) else {
         return unavailable();
     };
-    let (Some(account_sid), Some(from_number)) =
-        (config.account_sid.as_deref(), config.from_number.as_deref())
-    else {
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "TWILIO_ACCOUNT_SID and TWILIO_FROM_NUMBER are required"})),
-        )
-            .into_response();
-    };
     if request.to.trim().is_empty() || request.external_id.trim().is_empty() {
         return (
             StatusCode::BAD_REQUEST,
@@ -617,66 +711,15 @@ async fn create_call(
             .into_response();
     }
     let _ = request.template_id;
-    let url = config.start_url(&request.external_id);
-    let status_callback = format!("{}/channels/twilio/voice/status", config.public_base_url);
-    let endpoint = format!(
-        "{}/2010-04-01/Accounts/{}/Calls.json",
-        config.api_base_url.trim_end_matches('/'),
-        account_sid
-    );
-    let form = serde_urlencoded::to_string([
-        ("To", request.to.as_str()),
-        ("From", from_number),
-        ("Url", url.as_str()),
-        ("StatusCallback", status_callback.as_str()),
-        ("StatusCallbackEvent", "initiated completed"),
-    ])
-    .unwrap_or_default();
-    let response = config
-        .http
-        .post(endpoint)
-        .basic_auth(account_sid, Some(&config.auth_token))
-        .header(
-            axum::http::header::CONTENT_TYPE,
-            "application/x-www-form-urlencoded",
-        )
-        .body(form)
-        .send()
-        .await;
-    match response {
-        Ok(response) if response.status().is_success() => match response.json::<Value>().await {
-            Ok(value) => {
-                let sid = value
-                    .get("sid")
-                    .and_then(Value::as_str)
-                    .unwrap_or("unknown");
-                record_admin(&state, "twilio.call", sid, "success", "");
-                (
-                    StatusCode::CREATED,
-                    Json(json!({"call_sid": value.get("sid").cloned()})),
-                )
-                    .into_response()
-            }
-            Err(error) => (
-                StatusCode::BAD_GATEWAY,
-                Json(json!({"error": error.to_string()})),
-            )
-                .into_response(),
-        },
-        Ok(response) => {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            (
-                StatusCode::BAD_GATEWAY,
-                Json(json!({"error": "Twilio call creation failed", "status": status.as_u16(), "body": body.chars().take(300).collect::<String>()})),
-            )
-                .into_response()
+    match config
+        .create_call_with_ref(&request.to, &request.external_id, request.call_ref)
+        .await
+    {
+        Ok(call_sid) => {
+            record_admin(&state, "twilio.call", &call_sid, "success", "");
+            (StatusCode::CREATED, Json(json!({"call_sid": call_sid}))).into_response()
         }
-        Err(error) => (
-            StatusCode::BAD_GATEWAY,
-            Json(json!({"error": error.to_string()})),
-        )
-            .into_response(),
+        Err(error) => (StatusCode::BAD_GATEWAY, Json(json!({"error": error}))).into_response(),
     }
 }
 
@@ -1280,6 +1323,86 @@ mod tests {
         let mut tampered = params.clone();
         tampered[1].1 = "+15550000000".to_string();
         assert!(!config.verify(&headers, url, &tampered));
+    }
+
+    #[tokio::test]
+    async fn signed_status_webhook_persists_canonical_state() {
+        use crate::calls::CallWorkflow;
+        use crate::ws_handler::AppState;
+        use axum::body::Body;
+        use axum::http::Request;
+        use interview_domain::call::{
+            CallDirection, CallProvider, CallState, CallTransport, ProviderRegistration,
+            ProviderRegistry,
+        };
+        use tower::ServiceExt;
+        use voice_runtime::{
+            EngineCatalog, MockSpeechEngine, SpeechEngine, SpeechStudio, StudioConfig,
+        };
+
+        let workflow = Arc::new(
+            CallWorkflow::in_memory(ProviderRegistry::new(vec![ProviderRegistration::new(
+                CallProvider::Twilio,
+                true,
+            )]))
+            .unwrap(),
+        );
+        let call = workflow
+            .begin_call(
+                CallProvider::Twilio,
+                Some(uuid::Uuid::new_v4()),
+                CallDirection::Outbound,
+                CallTransport::Pstn,
+                Some("status-webhook"),
+                1_000,
+            )
+            .unwrap();
+        workflow.link_provider_call(call.id, "CA123").unwrap();
+        let config = Arc::new(config());
+        let engine: Arc<dyn SpeechEngine> = Arc::new(MockSpeechEngine::default());
+        let studio = Arc::new(SpeechStudio::new(engine.clone(), StudioConfig::default()));
+        let engines = Arc::new(EngineCatalog::new("mock").register(engine));
+        let state = AppState {
+            ai: crate::ai_client::AiClient::new("http://127.0.0.1:9"),
+            api_key: None,
+            session_config: crate::session::SessionConfig::default(),
+            studio,
+            engines,
+            managed_call: None,
+            calls: Some(workflow.clone()),
+            twilio: Some(config.clone()),
+            scheduler: None,
+            calendar: None,
+            audit: None,
+        };
+        let body = b"CallSid=CA123&CallStatus=completed";
+        let path = format!("/channels/twilio/voice/status?call_id={}", call.id);
+        let url = config.canonical_url(&path);
+        let signature = config.signature(&url, &parse_form(body));
+        let request = Request::builder()
+            .method("POST")
+            .uri(&path)
+            .header("content-type", "application/x-www-form-urlencoded")
+            .header("x-twilio-signature", signature)
+            .body(Body::from(body.as_slice()))
+            .unwrap();
+        let response = router().with_state(state).oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(
+            workflow.get(call.id).unwrap().unwrap().state,
+            CallState::Completed
+        );
+    }
+
+    #[test]
+    fn outbound_status_callback_carries_the_internal_call_reference() {
+        let config = config();
+        let call_id = uuid::Uuid::new_v4();
+        let start = config.start_url("interview-1");
+        assert!(!start.contains("call_ref="));
+        let callback = config.status_callback_url(Some(call_id));
+        assert!(callback.contains("call_id="));
+        assert!(callback.contains(&call_id.to_string()));
     }
 
     #[test]

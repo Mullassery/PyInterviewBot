@@ -14,6 +14,13 @@ simplifies the full product spec (and why).
 > runtime crate; a versioned interview-template engine; evidence-linked reports
 > with human review; and bounded audio/transport controls. See the sections at the end of
 > this document and `docs/internal/BASELINE_AUDIT.md`.
+>
+> **2026-10-26 update:** the Rust gateway now owns a dedicated canonical call-state
+> SQLite database and lifecycle API. Python remains the interview system of record
+> and must not write call state directly. Twilio status/inbound/outbound and
+> Vapi-compatible managed-call webhooks are mapped into that store. See
+> [`docs/CALL_STATE.md`](CALL_STATE.md) and
+> [`docs/adr/0005-rust-owned-call-state.md`](adr/0005-rust-owned-call-state.md).
 
 ## Layers
 
@@ -87,6 +94,35 @@ candidate-client/ (Vite/TS)
      animation, and an elapsed timer. No transcript, no score, no
      evidence, ever.
 ```
+
+## Canonical call lifecycle
+
+```
+candidate phone / Vapi            Python ai-service
+          │                              │
+          │ signed provider webhook      │ authenticated /calls command
+          ▼                              ▼
+    gateway/src/calls.rs  ◄──────────────┘
+          │
+          │ sole writer
+          ▼
+    dedicated call SQLite DB
+    (calls, transitions, events, unmatched events, providers)
+```
+
+The call database is separate from ai-service's interview database. It stores
+no transcript, evidence, report, audio, or recording. Provider callbacks are
+verified by the adapter, deduplicated by provider event ID, ordered by a mapped
+sequence, and reconciled after a provider call ID is linked to the internal call
+UUID. The interview link is `calls.interview_session_id`, but referential
+integrity to the interview store is intentionally not a SQLite foreign key
+because the two services own independent databases.
+
+Twilio voice webhooks register inbound calls, link outbound calls from the
+provider SID returned by the create-call API, and persist signed status
+callbacks tagged with the internal call UUID. Vapi-compatible managed-call
+webhooks map status updates and `end-of-call-report` into the same state machine.
+The call workflow is disabled unless `GATEWAY_CALLS_ENABLED=true`.
 
 ## Component flow
 

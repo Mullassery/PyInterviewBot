@@ -331,6 +331,28 @@ time, and de-duplicated before normalization. Transport retries use
 `/native/voice/engines` lists registered speech engines, default selection, and
 health.
 
+## Canonical call state
+
+The optional call lifecycle is **off by default**. Enable it with:
+
+```bash
+GATEWAY_CALLS_ENABLED=true \
+GATEWAY_CALL_DB_PATH=data/calls.db \
+GATEWAY_CALL_RETENTION_DAYS=90 \
+GATEWAY_CALL_UNMATCHED_RETENTION_HOURS=24 \
+cargo run -p gateway
+```
+
+The Rust gateway is the only writer of the call database. Python must use the
+authenticated `/calls` API and must not open this SQLite file. Provider event
+IDs are de-duplicated, out-of-order events are ignored by mapped sequence, and
+events received before call linking are replayed after the provider call ID is
+known. Twilio status callbacks are tagged with the internal call UUID; Vapi
+metadata receives `pyinterviewbot_call_id` and `interview_session_id`.
+
+See [`docs/CALL_STATE.md`](docs/CALL_STATE.md) for routes, retention, backup,
+restore, state transitions, and capability ownership.
+
 ## Twilio voice configuration
 
 The gateway exposes Twilio Programmable Voice webhooks for gather/transcribe

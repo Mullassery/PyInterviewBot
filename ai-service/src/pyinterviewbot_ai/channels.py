@@ -14,6 +14,7 @@ from .models import ChannelMessageResponse, ChannelSessionResponse
 CHANNELS = {
     "web",
     "twilio_voice",
+    "vapi",
     "whatsapp_text",
     "whatsapp_voice_note",
     "teams",

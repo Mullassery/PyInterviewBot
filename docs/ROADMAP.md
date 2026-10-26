@@ -1,7 +1,7 @@
 # PyInterviewBot Execution Roadmap
 
-Last revised: 2026-10-25  
-Repository snapshot: `b9a6004` (working tree clean after restoring the verified state)
+Last revised: 2026-10-26
+Repository snapshot: working tree after canonical call-state implementation
 
 This document records completed work, pending work, external blockers, and the
 dependency order for the multi-channel platform. It is evidence-based: a feature
@@ -30,10 +30,10 @@ Companion documents:
 | `cargo fmt --check` | pass |
 | `cargo clippy --all-targets -- -D warnings` | pass |
 | `cargo clippy --all-targets --features local-neural -- -D warnings` | pass |
-| `cargo test` | **80 passed** (43 gateway + 32 runtime + 5 domain) |
+| `cargo test --workspace` | **101 passed** (56 gateway + 32 runtime + 13 domain) |
 | `cargo test -p voice-runtime --features local-neural` | **63 passed** |
-| `uv run ruff check .` | pass |
-| `uv run --group dev python -m pytest -q` | **57 passed** |
+| `uv run ruff check .` | **not clean**: 94 pre-existing violations (see baseline audit) |
+| `uv run --group dev python -m pytest -q` | **58 passed** |
 | `npx tsc --noEmit` | pass |
 | `npm run build` | pass |
 | Live native gateway smoke | health, sessions, speech, chunked speech, transcription, recording export/clear/delete, auth rejection |
@@ -142,10 +142,11 @@ final licence/model review, release artifact validation.
 
 # Pending multi-channel phases
 
-These phases extend the existing platform. No Twilio, WhatsApp, or Teams adapter
-code exists in the repository today; only provider documentation has been
-consulted. Do not describe these channels as implemented until code and tests
-exist.
+These phases extend the existing platform. Twilio, WhatsApp, Teams scheduling,
+and a Vapi-compatible managed-call workflow exist as adapters with contract
+tests, but live provider validation is still blocked by accounts, credentials,
+and public callback URLs. Do not describe a provider as live-verified until an
+approved-account test has actually run.
 
 ## Phase 7 — Shared channel-independent interview domain
 
@@ -167,11 +168,15 @@ Implemented:
   logical response without adding another candidate turn.
 - Cross-channel test: the same answers through `twilio_voice` and
   `whatsapp_text` produce the same report node/status structure.
-- Supported channel identifiers: `web`, `twilio_voice`, `whatsapp_text`,
-  `whatsapp_voice_note`, `teams` (adapters not yet implemented).
+- Supported channel identifiers: `web`, `twilio_voice`, `vapi`,
+  `whatsapp_text`, `whatsapp_voice_note`, `teams`.
+- Canonical Rust-owned call lifecycle with a dedicated SQLite database,
+  provider registry, deterministic capability resolution, idempotent command
+  handling, ordered/deduplicated provider events, unmatched-event replay, and
+  authenticated `/calls` routes. See [`docs/CALL_STATE.md`](CALL_STATE.md).
 
-Provider wire formats remain outside the domain. No Twilio, WhatsApp, or Teams
-adapter code exists yet.
+Provider wire formats remain outside the domain; adapters normalize into it.
+Twilio and Vapi-compatible provider paths are implemented but not live-verified.
 
 ## Phase 8 — Twilio voice
 
@@ -195,8 +200,12 @@ Pending:
 
 - Live Twilio account validation and callback URL registration.
 - Provider-specific Media Streams pacing/backpressure validation under load.
-- Durable call-lifecycle event persistence beyond status logging.
-- Recording/consent configuration for Twilio.`
+- Recording/consent configuration for Twilio.
+- Live provider reconciliation for calls that end while the gateway is down.
+
+Canonical lifecycle persistence, call↔interview correlation, idempotent status
+handling, and out-of-order recovery are now implemented in
+[`gateway/src/calls.rs`](../gateway/src/calls.rs).
 
 Verified provider starting points:
 - https://www.twilio.com/docs/voice/api

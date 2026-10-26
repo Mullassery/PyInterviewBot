@@ -19,6 +19,7 @@ use serde_json::{json, Value};
 use std::convert::Infallible;
 use uuid::Uuid;
 
+use voice_runtime::managed_call::{ManagedEventType, NormalizedManagedEvent};
 use voice_runtime::{
     AudioBuffer, AudioFormat, ManagedCallError, ProviderEvent, StudioError, StudioSessionId,
 };
@@ -488,7 +489,71 @@ async fn managed_webhook(
         ));
     };
     match workflow.ingest_webhook(&headers, &body) {
-        Ok(events) => Json(json!({ "events": events })).into_response(),
+        Ok(events) => {
+            if let Some(calls) = &state.calls {
+                for event in &events {
+                    record_vapi_event(calls, event);
+                }
+            }
+            Json(json!({ "events": events })).into_response()
+        }
         Err(error) => managed_error(error),
+    }
+}
+
+fn record_vapi_event(workflow: &crate::calls::CallWorkflow, event: &NormalizedManagedEvent) {
+    let (target, sequence) = match event.event_type {
+        ManagedEventType::SessionStatus => {
+            let status = event
+                .data
+                .get("status")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let ended_reason = event.data.get("endedReason").and_then(Value::as_str);
+            (
+                crate::calls::vapi_target(status, ended_reason),
+                crate::calls::vapi_sequence(status),
+            )
+        }
+        ManagedEventType::SessionCompleted => {
+            let ended_reason = event.data.get("endedReason").and_then(Value::as_str);
+            (
+                Some(crate::calls::vapi_ended_target(ended_reason)),
+                Some(50),
+            )
+        }
+        _ => (None, None),
+    };
+    let Some(target) = target else {
+        return;
+    };
+    let internal_call_id = event
+        .data
+        .get("call")
+        .and_then(|call| call.get("metadata"))
+        .and_then(|metadata| metadata.get("pyinterviewbot_call_id"))
+        .and_then(Value::as_str)
+        .and_then(|value| Uuid::parse_str(value).ok());
+    let provider_call_id = event.call_id.as_deref();
+    match workflow.apply_state(
+        interview_domain::call::CallProvider::Vapi,
+        internal_call_id,
+        provider_call_id,
+        &format!("vapi:{}", event.dedup_key),
+        target,
+        sequence,
+        crate::calls::now_ms(),
+    ) {
+        Ok(outcome) => tracing::info!(
+            ?target,
+            provider_call_id,
+            ?outcome,
+            "persisted Vapi call event"
+        ),
+        Err(error) => tracing::warn!(
+            %error,
+            provider_call_id,
+            "failed to persist Vapi call event"
+        ),
     }
 }

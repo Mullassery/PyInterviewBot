@@ -135,3 +135,11 @@ def test_cross_channel_reports_share_the_same_structure(
         item["status"] for item in text_report["node_assessments"]
     ]
     assert voice_report["competency"] == text_report["competency"]
+
+
+def test_vapi_channel_uses_the_same_session_contract(
+    client: TestClient, auth_headers
+) -> None:
+    session = _start(client, auth_headers, "vapi", "vapi-candidate")
+    assert session["channel"] == "vapi"
+    assert session["external_id"] == "vapi-candidate"
