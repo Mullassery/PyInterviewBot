@@ -6,7 +6,6 @@ import json
 
 import httpx
 import pytest
-
 from pyinterviewbot_ai import providers
 from pyinterviewbot_ai.providers.base import ProviderError, TurnContext
 from pyinterviewbot_ai.providers.openrouter import OpenRouterLanguageModel

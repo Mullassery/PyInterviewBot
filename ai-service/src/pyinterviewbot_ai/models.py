@@ -98,7 +98,8 @@ class SessionListItem(BaseModel):
 
 class SessionSummary(BaseModel):
     """Recruiter-facing view — the one place all this detail is allowed to
-    surface (spec §24)."""
+    surface (spec §24).
+    """
 
     session_id: UUID
     template_id: str = "rag_architect"

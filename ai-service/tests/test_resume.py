@@ -61,13 +61,11 @@ def test_completed_interview_cannot_resume(
     started = _start(client, auth_headers)
     session_id = started["session_id"]
     token = started["session_token"]
-    for index, answer in enumerate(
-        [
-            "I owned retry and idempotency across three services.",
-            "I reasoned about ordering with partition keys.",
-            "I diagnosed consumer lag and added alerting.",
-        ]
-    ):
+    for answer in [
+        "I owned retry and idempotency across three services.",
+        "I reasoned about ordering with partition keys.",
+        "I diagnosed consumer lag and added alerting.",
+    ]:
         client.post(
             f"/sessions/{session_id}/turn",
             json={"transcript": answer},

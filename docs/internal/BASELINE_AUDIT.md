@@ -102,14 +102,14 @@ multi-replica operation. SQLite remains single-node only. See
 
 The ai-service now has a workflow artifact lifecycle. New workflow source and
 tests pass targeted Ruff checks; after removing duplicated test fixtures, the
-repository-wide Ruff baseline is 38 pre-existing violations in unrelated files.
+repository-wide Ruff baseline is 27 pre-existing violations in unrelated files.
 
 | Command | Result |
 |---|---|
 | `uv run python -c "from pyinterviewbot_ai.main import app; print('import OK')"` | `import OK` |
 | `uv run --group dev python -m pytest -q` (from `ai-service`) | **99 passed**, 2 dependency deprecation warnings |
 | `uv run --group dev ruff check <workflow files>` | pass |
-| `uv run --group dev ruff check .` (from `ai-service`) | **not clean**: 38 pre-existing violations |
+| `uv run --group dev ruff check .` (from `ai-service`) | **not clean**: 27 pre-existing violations |
 
 Verified behavior: strict canonical hashing, immutable versions, idempotent
 publishing, concurrent version allocation, fixed mock sandbox, mandatory suites,

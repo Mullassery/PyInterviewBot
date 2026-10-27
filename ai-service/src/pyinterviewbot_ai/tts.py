@@ -44,7 +44,7 @@ def _synthesize_worker(text: str, out_queue: queue.Queue[object]) -> None:
         voice = _get_voice()
         for chunk in voice.synthesize(text):
             out_queue.put(chunk.audio_int16_bytes)
-    except Exception as exc:  # noqa: BLE001 — surfaced to the caller via the queue
+    except Exception as exc:
         out_queue.put(exc)
     finally:
         out_queue.put(_SENTINEL)

@@ -79,7 +79,7 @@ def trailing_silence(ms: int) -> bytes:
 
 
 async def stream_audio(ws, pcm16: bytes) -> None:
-    """Sends audio at real-time pace (20ms chunk every 20ms), exactly like a
+    """Send audio at real-time pace (20ms chunk every 20ms), exactly like a
     real mic stream would arrive. This matters: blasting everything at once
     desyncs the gateway's VAD timing (200ms speech-confirm / 700ms
     silence-to-end-turn) from wall-clock reality and desyncs this script's
@@ -170,7 +170,7 @@ async def main() -> None:
         await asyncio.wait_for(run(), timeout=240)
     except TimeoutError:
         print("\nTIMED OUT — session never reached 'completed'. Check gateway/ai-service logs.")
-        raise SystemExit(1)
+        raise SystemExit(1) from None
 
 
 if __name__ == "__main__":

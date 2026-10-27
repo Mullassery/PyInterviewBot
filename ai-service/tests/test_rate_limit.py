@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
-
 from pyinterviewbot_ai import db, main
 from pyinterviewbot_ai.rate_limit import SlidingWindowLimiter
 

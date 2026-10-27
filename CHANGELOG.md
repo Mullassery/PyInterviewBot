@@ -26,7 +26,7 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
   allowlisted values; fixed the interview-metadata insert placeholder mismatch
   and removed a duplicate reader.
 - 41 new Python tests; full ai-service suite is now 99 passed. New workflow files
-  pass Ruff; 38 pre-existing repository-wide Ruff violations remain.
+  pass Ruff; 27 pre-existing repository-wide Ruff violations remain.
 - Documented the lifecycle, API, configuration, security model, and explicit
   limitation that live sessions do not yet route to active deployments in
   [`docs/WORKFLOWS.md`](docs/WORKFLOWS.md).

@@ -32,7 +32,7 @@ Companion documents:
 | `cargo clippy --all-targets --features local-neural -- -D warnings` | pass |
 | `cargo test --workspace` | **101 passed** (56 gateway + 32 runtime + 13 domain) |
 | `cargo test -p voice-runtime --features local-neural` | **63 passed** |
-| `uv run ruff check .` | **not clean**: 38 pre-existing violations (see baseline audit); workflow files pass targeted checks |
+| `uv run ruff check .` | **not clean**: 27 pre-existing violations (see baseline audit); workflow files pass targeted checks |
 | `uv run --group dev python -m pytest -q` | **99 passed** |
 | `npx tsc --noEmit` | pass |
 | `npm run build` | pass |

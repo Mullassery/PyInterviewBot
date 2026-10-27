@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from pyinterviewbot_ai import providers
 from pyinterviewbot_ai.providers.base import TurnContext
 from pyinterviewbot_ai.providers.mock import (
