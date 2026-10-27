@@ -308,6 +308,6 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
   `speak()` returning `Finished` before TTS playback had actually finished
   (Piper synthesizes faster than real time).
 
-[Unreleased]: https://github.com/Mullassery/PyInterviewBot/compare/4ab3ffe...HEAD
-[0.1.1]: https://github.com/Mullassery/PyInterviewBot/compare/49018ce...4ab3ffe
-[0.1.0]: https://github.com/Mullassery/PyInterviewBot/commits/49018ce
+[Unreleased]: ../PyInterviewBot/compare/4ab3ffe...HEAD
+[0.1.1]: ../PyInterviewBot/compare/49018ce...4ab3ffe
+[0.1.0]: ../PyInterviewBot/commits/49018ce

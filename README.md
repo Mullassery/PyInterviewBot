@@ -4,7 +4,7 @@
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/pyinterviewbot-ai)](https://pypi.org/project/pyinterviewbot-ai/)
-[![CI](https://github.com/Mullassery/PyInterviewBot/actions/workflows/ci.yml/badge.svg)](https://github.com/Mullassery/PyInterviewBot/actions/workflows/ci.yml)
+[![CI](../PyInterviewBot/actions/workflows/ci.yml/badge.svg)](../PyInterviewBot/actions/workflows/ci.yml)
 
 ## What it is
 
@@ -677,13 +677,13 @@ candidate client. A dependency-audit job runs `cargo audit`, `npm audit`, and
 
 Other tools from the same family, for adjacent parts of the AI stack:
 
-- [PyInferenceManager](https://github.com/Mullassery/PyInferenceManager) — multi-provider LLM inference orchestrator with cost/latency-aware routing and budget enforcement.
-- [PyAgentHound](https://github.com/Mullassery/PyAgentHound) — debug AI systems by tracing execution, detecting failures, identifying root causes, and explaining bad agent results.
-- [PyStreamAI](https://github.com/Mullassery/PyStreamAI) — ML deployment toolkit: canary/A-B routing, cost tracking, request scheduling, hot model reload, and ONNX Runtime inference.
-- [PyStreamMCP](https://github.com/Mullassery/PyStreamMCP) — intelligence layer for AI agents: query planning, context discovery, and cost optimization.
-- [PyTokenCalc](https://github.com/Mullassery/PyTokenCalc) — count tokens and estimate LLM costs across 20+ providers before you send a request.
+- [PyInferenceManager](../PyInferenceManager) — multi-provider LLM inference orchestrator with cost/latency-aware routing and budget enforcement.
+- [PyAgentHound](../PyAgentHound) — debug AI systems by tracing execution, detecting failures, identifying root causes, and explaining bad agent results.
+- [PyStreamAI](../PyStreamAI) — ML deployment toolkit: canary/A-B routing, cost tracking, request scheduling, hot model reload, and ONNX Runtime inference.
+- [PyStreamMCP](../PyStreamMCP) — intelligence layer for AI agents: query planning, context discovery, and cost optimization.
+- [PyTokenCalc](../PyTokenCalc) — count tokens and estimate LLM costs across 20+ providers before you send a request.
 
-[Browse all projects →](https://github.com/Mullassery?tab=repositories)
+[Browse all projects →](../Mullassery-profile)
 
 ## License
 
