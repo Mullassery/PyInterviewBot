@@ -148,6 +148,21 @@ def _deployment_idempotency_key(operation: str, key: str | None) -> str | None:
     return f"{operation}:{key}" if key is not None else None
 
 
+async def _ensure_active_workflow(
+    conn: aiosqlite.Connection, workflow_id: UUID | str
+) -> None:
+    cursor = await conn.execute(
+        "SELECT status FROM workflows WHERE id = ?", (str(workflow_id),)
+    )
+    workflow = await cursor.fetchone()
+    if workflow is None:
+        await conn.rollback()
+        raise WorkflowNotFoundError(f"unknown workflow {workflow_id}")
+    if workflow["status"] != "active":
+        await conn.rollback()
+        raise WorkflowStateError("workflow is disabled")
+
+
 def _replay_production_deployment(
     existing: DeploymentRecord, version: int
 ) -> DeploymentRecord:
@@ -566,6 +581,7 @@ async def decide_approval(
         if row["approver_subject"] != actor:
             await conn.rollback()
             raise WorkflowPermissionError("only the assigned approver may decide")
+        await _ensure_active_workflow(conn, row["workflow_id"])
         if row["status"] != "pending":
             await conn.rollback()
             raise WorkflowStateError("approval has already been decided")
@@ -952,6 +968,7 @@ async def rollback_production(
         if existing is not None:
             await conn.rollback()
             return existing
+        await _ensure_active_workflow(conn, workflow_id)
 
         cursor = await conn.execute(
             "SELECT * FROM workflow_deployments WHERE id = ? AND workflow_id = ?",

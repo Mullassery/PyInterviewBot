@@ -69,7 +69,9 @@ def _http_error(exc: Exception) -> HTTPException:
         return HTTPException(status_code=403, detail=str(exc))
     if isinstance(exc, (store.WorkflowConflictError, store.WorkflowStateError)):
         return HTTPException(status_code=409, detail=str(exc))
-    return HTTPException(status_code=400, detail=str(exc))
+    if isinstance(exc, ValueError):
+        return HTTPException(status_code=400, detail=str(exc))
+    return HTTPException(status_code=500, detail="internal workflow error")
 
 
 def _require_role(principal: Principal, role: str) -> None:

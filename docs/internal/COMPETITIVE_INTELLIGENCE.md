@@ -173,7 +173,7 @@ These claims are useful as product requirements even though they are unverified.
 | Candidate onboarding/upskilling | Not implemented | Berri Tutor | Out of near-term scope; possibly integrate a separate product |
 | Candidate marketplace | Not implemented | Berri Talent | Out of scope |
 | Compliance certifications | Not held | SOC 2/ISO/GDPR/CCPA claims; DPDP in progress | Complete security controls, DPA/retention policy, and external audit before enterprise sales |
-| Audit trail | Partial: gateway provider/scheduler/calendar/webhook actions | Claimed deletion/verification and security controls | Add ai-service reviewer/deletion/export audit coverage |
+| Audit trail | Partial: gateway actions plus ai-service review/delete/export events | Claimed deletion/verification and security controls | Add read auditing and audit retention/operator access |
 | Tenant isolation | Not implemented | Enterprise positioning | Add tenant-scoped credentials and row-level isolation |
 | Cost per interview | Not measured | Not published | Add measured latency/cost instrumentation |
 

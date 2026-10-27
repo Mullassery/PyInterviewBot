@@ -12,25 +12,35 @@ trust.
 None. This is pre-1.0 (`0.1.0`), single-branch (`main`), no LTS/patch
 policy. Security fixes land on `main` only.
 
-## No API keys / no cloud credentials involved
+## Local by default; optional provider credentials
 
-ASR (faster-whisper), the LLM (Ollama), and TTS (Piper) all run locally.
-There are no API keys, tokens, or cloud LLM credentials anywhere in this
-stack today, and none are read from environment variables. If a cloud
-provider integration is added later, that provider's key(s) must be read
-from environment variables or a secrets manager — never hardcoded or
-committed — and this document must be updated to say so explicitly.
+ASR (faster-whisper), the LLM (Ollama), and TTS (Piper) all run locally and
+need no cloud credentials. The optional OpenRouter provider reads
+`OPENROUTER_API_KEY`; managed-call integration reads `MANAGED_CALL_API_KEY`
+and its webhook secret. These keys are opt-in, read only from the
+environment or a secrets manager, and must never be hardcoded, committed,
+or sent to browser code. Selecting a cloud provider adds that provider as a
+trust boundary.
 
 ## Known, current security gaps (not hypothetical — verified in code)
 
-- **Authentication exists, but authorization is coarse.** The gateway and
+- **Authentication exists, but authorization is uneven.** The gateway and
   ai-service enforce a shared API key (or loopback-only fail-closed when the
-  key is unset). `/health` is exempt. Session creation now returns a
-  per-session token, the gateway forwards it on turns, and
-  `PYINTERVIEWBOT_REQUIRE_SESSION_TOKEN=1` enforces it. However, there is still
-  no tenant isolation or scoped admin key: any global-key holder can read or
-  delete any session UUID, including transcripts, evidence, reports, and
-  reviews. Do not expose the recruiter API across a trust boundary yet.
+  key is unset). `/health` is exempt. Session creation returns a per-session
+  token, the gateway forwards it on turns, and
+  `PYINTERVIEWBOT_REQUIRE_SESSION_TOKEN=1` enforces it. Workflow routes use a
+  separate `PYINTERVIEWBOT_PRINCIPALS` map with owner checks and
+  author/approver/deployer/admin roles. Interview and recruiter routes still
+  rely on the coarse shared key, so any global-key holder can read or delete
+  any session UUID, including transcripts, evidence, reports, and reviews.
+  Do not expose the recruiter API across a trust boundary yet.
+- **Workflow controls are a registry, not live routing.** Production workflow
+  deployments are recorded and audited, but no candidate session runtime
+  selects an active deployment yet. Do not describe a promoted workflow as
+  serving live interviews.
+- **AI-service audit coverage is partial.** Review, deletion, and report-export
+  actions append actor/target records to `ai_audit_events`; other reads are not
+  audited, and neither audit stream has automated retention or an operator UI.
 - **CORS wildcard — fixed 2026-09-22.** `ai-service/src/pyinterviewbot_ai/main.py`
   used to set `allow_origins=["*"]`, letting any page in a user's browser
   script a request to `http://127.0.0.1:8000/sessions`. It now reads a
@@ -41,7 +51,7 @@ committed — and this document must be updated to say so explicitly.
   `Access-Control-Allow-Origin` back, an arbitrary origin is rejected.
   This is a mitigation, not authentication — the endpoints are still open
   to any *same-allowed-origin or direct (non-browser)* client, so the
-  "no authentication or authorization anywhere" gap below still applies.
+  shared-key authorization gap above still applies.
 - **Rate limiting is partial.** ai-service has a bounded in-process sliding
   window (`PYINTERVIEWBOT_RATE_LIMIT`, default 120/60s), but it is per worker
   and not shared. There is no gateway-level limiter, quota, or distributed

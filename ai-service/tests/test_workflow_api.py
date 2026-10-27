@@ -6,6 +6,7 @@ import json
 
 import pytest
 from fastapi.testclient import TestClient
+from pyinterviewbot_ai import workflow_lifecycle as lifecycle
 
 PRINCIPALS = {
     "alice-key": {
@@ -90,6 +91,29 @@ def _run_tests(
     )
     assert response.status_code == 200, response.text
     return response.json()
+
+
+def test_unexpected_lifecycle_errors_are_500_without_leaking_details(
+    client: TestClient,
+    workflow_auth: dict[str, dict[str, str]],
+    monkeypatch,
+) -> None:
+    alice = workflow_auth["alice"]
+    workflow = _create(client, alice)
+    workflow_id = workflow["workflow_id"]
+    _publish(client, alice, workflow_id)
+
+    async def boom(*args, **kwargs):
+        raise RuntimeError("secret internal detail")
+
+    monkeypatch.setattr(lifecycle, "deploy_sandbox", boom)
+    response = client.post(
+        f"/workflows/{workflow_id}/versions/1/sandbox/deploy",
+        json={},
+        headers=alice,
+    )
+    assert response.status_code == 500
+    assert response.json()["detail"] == "internal workflow error"
 
 
 def test_workflow_vertical_slice_promotes_the_exact_tested_hash(

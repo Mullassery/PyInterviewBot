@@ -103,8 +103,8 @@ artifact identity and promotion controls are detailed in
 1. TLS/WSS termination and strict network policy.
 2. Session-scoped authorization (or per-tenant isolation) for transcript,
    evidence, report, review, and delete operations.
-3. Rate limits, request quotas, and AI-service audit coverage for reviewer and
-   deletion actions.
+3. Rate limits, request quotas, audit retention, and audit coverage for
+   report/summary reads beyond the current review/delete/export events.
 4. A documented retention policy and consent flow, including whether audio is
    ever enabled.
 5. Legal/privacy review for the target jurisdiction and a bias/validation study

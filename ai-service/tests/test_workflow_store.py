@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sqlite3
 from uuid import uuid4
 
 import pytest
@@ -144,6 +145,90 @@ async def test_get_version_rejects_a_tampered_artifact() -> None:
 
     with pytest.raises(workflow_store.WorkflowStateError, match="hash"):
         await workflow_store.get_version(record.workflow_id, published.version)
+
+
+async def _insert_deployment(
+    conn,
+    workflow_id,
+    version: int,
+    content_hash: str,
+    deployment_id: str,
+) -> None:
+    await conn.execute(
+        "INSERT INTO workflow_deployments "
+        "(id, workflow_id, version, environment, content_hash, binding_fingerprint, "
+        "status, actor_subject, created_at, activated_at) "
+        "VALUES (?, ?, ?, 'production', ?, 'binding', 'active', 'alice', ?, ?)",
+        (
+            deployment_id,
+            str(workflow_id),
+            version,
+            content_hash,
+            "2026-10-27T00:00:00+00:00",
+            "2026-10-27T00:00:00+00:00",
+        ),
+    )
+
+
+async def test_schema_allows_only_one_active_deployment_per_environment() -> None:
+    await db.init_db()
+    record = await workflow_store.create_workflow(
+        owner_subject="alice", draft=_draft(), actor="alice"
+    )
+    published = await workflow_store.publish_version(
+        record.workflow_id, actor="alice", idempotency_key="publish-1"
+    )
+    async with db.connect() as conn:
+        await _insert_deployment(
+            conn, record.workflow_id, published.version, published.content_hash, "d1"
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            await _insert_deployment(
+                conn,
+                record.workflow_id,
+                published.version,
+                published.content_hash,
+                "d2",
+            )
+
+
+async def test_init_db_migrates_duplicate_active_deployments() -> None:
+    await db.init_db()
+    record = await workflow_store.create_workflow(
+        owner_subject="alice", draft=_draft(), actor="alice"
+    )
+    published = await workflow_store.publish_version(
+        record.workflow_id, actor="alice", idempotency_key="publish-1"
+    )
+    async with db.connect() as conn:
+        await conn.execute("DROP INDEX uq_workflow_deployments_active_env")
+        await conn.execute(
+            "DELETE FROM schema_migrations WHERE name = ?",
+            ("001_single_active_deployment",),
+        )
+        await _insert_deployment(
+            conn, record.workflow_id, published.version, published.content_hash, "d1"
+        )
+        await _insert_deployment(
+            conn, record.workflow_id, published.version, published.content_hash, "d2"
+        )
+        await conn.commit()
+
+    await db.init_db()
+
+    async with db.connect() as conn:
+        cursor = await conn.execute(
+            "SELECT id, status FROM workflow_deployments ORDER BY rowid"
+        )
+        assert await cursor.fetchall() == [("d1", "superseded"), ("d2", "active")]
+        with pytest.raises(sqlite3.IntegrityError):
+            await _insert_deployment(
+                conn,
+                record.workflow_id,
+                published.version,
+                published.content_hash,
+                "d3",
+            )
 
 
 async def test_unknown_workflow_and_version_are_reported() -> None:

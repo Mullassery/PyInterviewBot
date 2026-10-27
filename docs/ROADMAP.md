@@ -32,8 +32,8 @@ Companion documents:
 | `cargo clippy --all-targets --features local-neural -- -D warnings` | pass |
 | `cargo test --workspace` | **101 passed** (56 gateway + 32 runtime + 13 domain) |
 | `cargo test -p voice-runtime --features local-neural` | **63 passed** |
-| `uv run ruff check .` | **not clean**: 94 pre-existing violations (see baseline audit); workflow files pass targeted checks |
-| `uv run --group dev python -m pytest -q` | **85 passed** |
+| `uv run ruff check .` | **not clean**: 66 pre-existing violations (see baseline audit); workflow files pass targeted checks |
+| `uv run --group dev python -m pytest -q` | **98 passed** |
 | `npx tsc --noEmit` | pass |
 | `npm run build` | pass |
 | Live native gateway smoke | health, sessions, speech, chunked speech, transcription, recording export/clear/delete, auth rejection |
@@ -385,7 +385,7 @@ sufficient. Do not implement a text-only bot and call it a live interviewer.
 | Managed-call workflow | Implemented, not live-verified | Mock HTTP transport tests only |
 | Shared channel-independent domain | Implemented and tested | Rust contracts + SQLite mapping/idempotency + cross-channel tests |
 | Channel-neutral session/message API | Implemented and tested | `/channels/{channel}/sessions` and `/messages` |
-| Workflow artifact lifecycle | Implemented and tested | `/workflows`; 85-test suite includes hash, approval, failure, rollback, concurrency |
+| Workflow artifact lifecycle | Implemented and tested | `/workflows`; 98-test suite includes hash, approval, failure, rollback, concurrency, migrations |
 | Live workflow deployment routing | Pending | Production deployments are registry state; no session runtime consumes them yet |
 | Twilio outbound/inbound voice | Implemented, not live-verified | Signed webhook + TwiML smoke; live account needed |
 | Twilio real-time media | Implemented, not live-verified | Signed TwiML + WebSocket media smoke; no live call |
@@ -423,7 +423,7 @@ complete in README, sales material, or release notes.
 | Live workflow deployment routing | Missing | Production deployment rows are audited registry state; no session runtime selects them | Operators can promote but cannot yet serve that artifact | P0 |
 | TLS/WSS deployment | Missing | Docs only; local HTTP/WS defaults | Remote deployment unsafe | P0 |
 | Consent/retention operations | Partial | Delete endpoints; no policy UI/automation or disk audio retention | Privacy/legal exposure | P0 |
-| AI-service audit coverage | Partial | Gateway audit only; review/delete/export in ai-service not audited | Weak accountability | P0 |
+| AI-service audit coverage | Partial | Gateway audit plus ai-service review/delete/export events; other reads, retention, and operator access still missing | Weak accountability outside audited actions | P0 |
 | Observability/load/cost | Missing | No metrics/tracing export, load tests, or cost-per-interview | No SLO/regression evidence | P1 |
 | OpenRouter validation | Partial | Live free-model LLM request succeeded; TTS/STT contract-tested only | Speech model availability, latency, data-processing terms | P1 |
 | Proctoring/identity/liveness/emotion/gaze/MBTI | Deliberately excluded | Not implemented; see competitive intelligence | Biometric/high-risk processing without consent/DPIA | Blocked |
@@ -439,7 +439,8 @@ complete in README, sales material, or release notes.
 2. Run live Twilio, WhatsApp, Google Calendar, and Microsoft Graph validation
    with approved accounts and public HTTPS/WSS endpoints.
 3. Tenant isolation, scoped credentials, TLS/WSS, and shared quotas.
-4. AI-service audit coverage for reviewer, deletion, and export actions.
+4. Extend AI-service audit coverage to report/summary reads and add retention
+   and operator access controls.
 5. Consent/retention policy, deletion verification, and recording controls.
 
 ## P1 — workflow and evaluation depth

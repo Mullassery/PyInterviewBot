@@ -101,21 +101,22 @@ multi-replica operation. SQLite remains single-node only. See
 ## 2026-10-26 workflow verification
 
 The ai-service now has a workflow artifact lifecycle. New workflow source and
-tests pass targeted Ruff checks; the repository-wide Ruff baseline remains 94
-pre-existing violations in unrelated files.
+tests pass targeted Ruff checks; after removing duplicated test fixtures, the
+repository-wide Ruff baseline is 66 pre-existing violations in unrelated files.
 
 | Command | Result |
 |---|---|
 | `uv run python -c "from pyinterviewbot_ai.main import app; print('import OK')"` | `import OK` |
-| `uv run --group dev python -m pytest -q` (from `ai-service`) | **85 passed**, 2 dependency deprecation warnings |
+| `uv run --group dev python -m pytest -q` (from `ai-service`) | **98 passed**, 2 dependency deprecation warnings |
 | `uv run --group dev ruff check <workflow files>` | pass |
-| `uv run --group dev ruff check .` (from `ai-service`) | **not clean**: 94 pre-existing violations |
+| `uv run --group dev ruff check .` (from `ai-service`) | **not clean**: 66 pre-existing violations |
 
 Verified behavior: strict canonical hashing, immutable versions, idempotent
 publishing, concurrent version allocation, fixed mock sandbox, mandatory suites,
 assigned approval, exact-hash promotion, failed-promotion preservation,
-ownership/role isolation, approval URL binding, binding-aware rollback, and
-audit events. Workflow state is stored in the ai-service interview SQLite
+ownership/role isolation, approval URL binding, binding-aware rollback,
+single-active-deployment enforcement, artifact hash verification on read,
+AI-service review/delete/export audit events, and migration behavior. Workflow state is stored in the ai-service interview SQLite
 database, separate from the Rust-owned call-state database.
 
 Not verified: live candidate-session routing to an active workflow deployment,

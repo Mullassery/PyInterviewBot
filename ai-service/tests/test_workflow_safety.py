@@ -611,6 +611,70 @@ def test_security_failure_blocks_approval_and_records_failed_promotion(
     )
 
 
+def test_disabling_workflow_deactivates_live_deployments(
+    client: TestClient, workflow_auth: dict[str, dict[str, str]]
+) -> None:
+    alice = workflow_auth["alice"]
+    bob = workflow_auth["bob"]
+    workflow = _create(client, alice)
+    workflow_id = workflow["workflow_id"]
+    _publish(client, alice, workflow_id, "publish-1")
+    _, _, production = _fully_promote(client, alice, bob, workflow_id, 1, "v1")
+
+    disabled = client.post(f"/workflows/{workflow_id}/disable", headers=alice)
+    assert disabled.status_code == 200
+    deployments = client.get(
+        f"/workflows/{workflow_id}/deployments", headers=alice
+    ).json()
+    assert [item["status"] for item in deployments] == ["disabled", "disabled"]
+    assert not any(
+        item["environment"] == "production" and item["status"] == "active"
+        for item in deployments
+    )
+
+    rollback = client.post(
+        f"/workflows/{workflow_id}/rollback",
+        json={"deployment_id": production["deployment_id"]},
+        headers={**alice, "Idempotency-Key": "disabled-rollback"},
+    )
+    assert rollback.status_code == 409
+
+    enabled = client.post(f"/workflows/{workflow_id}/enable", headers=alice)
+    assert enabled.status_code == 200
+    assert not any(
+        item["environment"] == "production" and item["status"] == "active"
+        for item in client.get(
+            f"/workflows/{workflow_id}/deployments", headers=alice
+        ).json()
+    )
+
+
+def test_disabled_workflow_cannot_approve_pending_request(
+    client: TestClient, workflow_auth: dict[str, dict[str, str]]
+) -> None:
+    alice = workflow_auth["alice"]
+    bob = workflow_auth["bob"]
+    workflow = _create(client, alice)
+    workflow_id = workflow["workflow_id"]
+    _publish(client, alice, workflow_id, "publish-1")
+    _, test_run = _test_version(client, alice, workflow_id, 1, "v1")
+    requested = client.post(
+        f"/workflows/{workflow_id}/versions/1/approvals",
+        json={"test_run_id": test_run["test_run_id"], "approver_subject": "bob"},
+        headers={**alice, "Idempotency-Key": "pending-approval"},
+    )
+    assert requested.status_code == 200
+    approval_id = requested.json()["approval_id"]
+
+    assert client.post(f"/workflows/{workflow_id}/disable", headers=alice).status_code == 200
+    decision = client.post(
+        f"/workflows/{workflow_id}/versions/1/approvals/{approval_id}/decision",
+        json={"decision": "approve"},
+        headers=bob,
+    )
+    assert decision.status_code == 409
+
+
 def test_disabled_workflow_cannot_be_deployed_until_reenabled(
     client: TestClient, workflow_auth: dict[str, dict[str, str]]
 ) -> None:

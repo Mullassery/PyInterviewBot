@@ -172,6 +172,12 @@ unless the caller has `admin`.
 Production deploy and dry-run take `{"test_run_id": "...", "approval_id": "..."}`.
 Rollback takes `{"deployment_id": "..."}`.
 
+Disabling a workflow marks its active sandbox and production deployments as
+`disabled` and blocks new sandbox deployments, test runs, approval requests,
+approval decisions, production promotion, and rollback. Draft edits and
+publishing new versions remain allowed. Re-enabling restores those operations
+but does not reactivate deployments; promote or roll back again explicitly.
+
 ## Storage
 
 Workflow data lives in the ai-service SQLite database:
@@ -212,7 +218,7 @@ must not write call state; the gateway remains its sole writer.
   rejection.
 - `tests/test_workflow_safety.py`: ownership, exact-hash promotion, approval
   URL binding, promotion failure preservation, rollback binding checks, and
-  disable behavior.
+  disabled-workflow blocking behavior.
 - `tests/test_workflow_store.py`: concurrent version allocation and
   idempotency.
 - `tests/test_auth.py`: principals map and role parsing.

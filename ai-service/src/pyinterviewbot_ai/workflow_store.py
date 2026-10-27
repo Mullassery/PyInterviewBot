@@ -284,6 +284,7 @@ async def set_status(
     if status not in {"active", "disabled"}:
         raise WorkflowStateError(f"unsupported workflow status {status}")
     async with db.connect() as conn:
+        conn.row_factory = aiosqlite.Row
         await conn.execute("BEGIN IMMEDIATE")
         cursor = await conn.execute(
             "UPDATE workflows SET status = ?, updated_at = ? WHERE id = ?",
@@ -292,6 +293,28 @@ async def set_status(
         if cursor.rowcount == 0:
             await conn.rollback()
             raise WorkflowNotFoundError(f"unknown workflow {workflow_id}")
+        if status == "disabled":
+            active = await (
+                await conn.execute(
+                    "SELECT id, version FROM workflow_deployments "
+                    "WHERE workflow_id = ? AND status = 'active'",
+                    (str(workflow_id),),
+                )
+            ).fetchall()
+            await conn.execute(
+                "UPDATE workflow_deployments SET status = 'disabled' "
+                "WHERE workflow_id = ? AND status = 'active'",
+                (str(workflow_id),),
+            )
+            for deployment in active:
+                await _audit(
+                    conn,
+                    workflow_id=workflow_id,
+                    version=deployment["version"],
+                    action="deployment.disabled",
+                    actor=actor,
+                    details={"deployment_id": deployment["id"]},
+                )
         await _audit(
             conn,
             workflow_id=workflow_id,

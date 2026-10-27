@@ -18,8 +18,12 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
 - Exact-hash production promotion with dry-run eligibility, durable deployment
   history, failed-promotion rows that preserve the last good deployment,
   binding-fingerprint rollback checks, and append-only workflow audit events.
-- 27 new Python tests; full ai-service suite is now 85 passed. New workflow files
-  pass Ruff; the 94 pre-existing repository-wide Ruff violations remain.
+- Hardened template pinning, operation-scoped idempotency, failed-promotion
+  replay, provider validation, artifact-hash verification on read, workflow API
+  error mapping, single-active-deployment enforcement, and schema migrations.
+- Added AI-service audit events for review, deletion, and report-export actions.
+- 40 new Python tests; full ai-service suite is now 98 passed. New workflow files
+  pass Ruff; 66 pre-existing repository-wide Ruff violations remain.
 - Documented the lifecycle, API, configuration, security model, and explicit
   limitation that live sessions do not yet route to active deployments in
   [`docs/WORKFLOWS.md`](docs/WORKFLOWS.md).

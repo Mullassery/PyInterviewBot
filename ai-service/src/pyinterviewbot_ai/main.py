@@ -4,6 +4,7 @@ import hmac
 import os
 import re
 from contextlib import asynccontextmanager
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
@@ -22,7 +23,7 @@ from . import (
     resume_policy,
     templates,
 )
-from .auth import hash_session_token, require_auth
+from .auth import Principal, hash_session_token, require_auth
 from .models import (
     ChannelMessageRequest,
     ChannelMessageResponse,
@@ -221,12 +222,21 @@ async def list_sessions() -> list[SessionListItem]:
     return await db.list_sessions()
 
 
-@app.delete("/sessions/{session_id}", dependencies=[Depends(require_auth)])
-async def delete_session(session_id: UUID) -> dict:
+@app.delete("/sessions/{session_id}")
+async def delete_session(
+    session_id: UUID,
+    principal: Annotated[Principal, Depends(require_auth)],
+) -> dict:
     """Delete a session and its transcript/evidence (retention)."""
     deleted = await db.delete_session(session_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="session not found")
+    await db.record_ai_audit(
+        action="session.delete",
+        actor_subject=principal.subject,
+        target_type="session",
+        target_id=str(session_id),
+    )
     return {"deleted": True, "session_id": str(session_id)}
 
 
@@ -273,12 +283,10 @@ async def session_report(session_id: UUID) -> SessionReport:
     )
 
 
-@app.get(
-    "/sessions/{session_id}/report/export",
-    dependencies=[Depends(require_auth)],
-)
+@app.get("/sessions/{session_id}/report/export")
 async def export_report(
     session_id: UUID,
+    principal: Annotated[Principal, Depends(require_auth)],
     format: str = Query(default="markdown"),
 ) -> Response:
     key = format.strip().lower()
@@ -315,6 +323,13 @@ async def export_report(
     )
     renderer, media_type, extension = reporting.RENDERERS[key]
     content = renderer(built, summary)
+    await db.record_ai_audit(
+        action="report.export",
+        actor_subject=principal.subject,
+        target_type="session",
+        target_id=str(session_id),
+        details={"format": key},
+    )
     return Response(
         content=content,
         media_type=media_type,
@@ -492,11 +507,12 @@ async def set_priorities(
     return PrioritiesResponse(session_id=session_id, priorities=priorities)
 
 
-@app.post(
-    "/sessions/{session_id}/review",
-    dependencies=[Depends(require_auth)],
-)
-async def review_evidence(session_id: UUID, req: ReviewRequest) -> dict:
+@app.post("/sessions/{session_id}/review")
+async def review_evidence(
+    session_id: UUID,
+    req: ReviewRequest,
+    principal: Annotated[Principal, Depends(require_auth)],
+) -> dict:
     row = await db.get_session_row(session_id)
     if row is None:
         raise HTTPException(status_code=404, detail=f"unknown session {session_id}")
@@ -505,6 +521,17 @@ async def review_evidence(session_id: UUID, req: ReviewRequest) -> dict:
         raise HTTPException(status_code=400, detail=f"unknown evidence node {req.node}")
     await db.record_review(
         session_id, req.node, req.reviewer, req.decision, req.note
+    )
+    await db.record_ai_audit(
+        action="session.review",
+        actor_subject=principal.subject,
+        target_type="session",
+        target_id=str(session_id),
+        details={
+            "node": req.node,
+            "decision": req.decision,
+            "reviewer": req.reviewer,
+        },
     )
     return {"recorded": True, "session_id": str(session_id), "node": req.node}
 

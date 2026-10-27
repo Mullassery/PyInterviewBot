@@ -221,6 +221,25 @@ CREATE TABLE IF NOT EXISTS workflow_audit (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    name TEXT PRIMARY KEY,
+    applied_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS ai_audit_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    action TEXT NOT NULL,
+    actor_subject TEXT NOT NULL,
+    target_type TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    details_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_audit_events_created
+    ON ai_audit_events(created_at, id);
+
 CREATE INDEX IF NOT EXISTS idx_workflow_versions_workflow
     ON workflow_versions(workflow_id, version);
 CREATE INDEX IF NOT EXISTS idx_workflow_test_runs_version
@@ -235,12 +254,44 @@ CREATE INDEX IF NOT EXISTS idx_workflow_audit_workflow
 """
 
 
+async def _migrate_single_active_deployment(conn: aiosqlite.Connection) -> None:
+    await conn.execute(
+        "UPDATE workflow_deployments SET status = 'superseded' "
+        "WHERE status = 'active' AND rowid NOT IN ("
+        "SELECT MAX(rowid) FROM workflow_deployments "
+        "WHERE status = 'active' GROUP BY workflow_id, environment)"
+    )
+    await conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_workflow_deployments_active_env "
+        "ON workflow_deployments(workflow_id, environment) "
+        "WHERE status = 'active'"
+    )
+
+
+MIGRATIONS = (("001_single_active_deployment", _migrate_single_active_deployment),)
+
+
+async def _run_migrations(conn: aiosqlite.Connection) -> None:
+    for name, migration in MIGRATIONS:
+        cursor = await conn.execute(
+            "SELECT 1 FROM schema_migrations WHERE name = ?", (name,)
+        )
+        if await cursor.fetchone() is not None:
+            continue
+        await migration(conn)
+        await conn.execute(
+            "INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)",
+            (name, _now()),
+        )
+
+
 async def init_db() -> None:
     os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("PRAGMA foreign_keys = ON")
         await db.execute("PRAGMA busy_timeout = 5000")
         await db.executescript(SCHEMA)
+        await _run_migrations(db)
         cursor = await db.execute("PRAGMA table_info(sessions)")
         columns = {row[1] for row in await cursor.fetchall()}
         if "template_id" not in columns:
@@ -360,6 +411,33 @@ async def mark_complete(session_id: UUID) -> None:
     async with connect() as db:
         await db.execute(
             "UPDATE sessions SET is_complete = 1 WHERE id = ?", (str(session_id),)
+        )
+        await db.commit()
+
+
+async def record_ai_audit(
+    *,
+    action: str,
+    actor_subject: str,
+    target_type: str,
+    target_id: str,
+    outcome: str = "success",
+    details: dict | None = None,
+) -> None:
+    async with connect() as db:
+        await db.execute(
+            "INSERT INTO ai_audit_events "
+            "(action, actor_subject, target_type, target_id, outcome, "
+            "details_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                action,
+                actor_subject,
+                target_type,
+                target_id,
+                outcome,
+                json.dumps(details or {}, sort_keys=True),
+                _now(),
+            ),
         )
         await db.commit()
 
