@@ -92,7 +92,9 @@ artifact identity and promotion controls are detailed in
   call state to the candidate client.
 - `pip-audit` now reports no known vulnerabilities; CI runs dependency audits.
 - The gateway audit trail covers provider/scheduler/calendar/webhook actions.
-  AI-service reviewer corrections and deletion endpoints are not yet audited.
+  AI-service review, deletion, and report-export endpoints now append actor and
+  target records to `ai_audit_events`; broader reads, retention, and operator
+  access are still pending.
 - The live managed-call path is not exercised in CI; contract tests use a
   deterministic mock transport only.
 - Model licences and terms are not enforced in code; operators must verify

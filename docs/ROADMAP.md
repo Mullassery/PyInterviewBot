@@ -32,8 +32,8 @@ Companion documents:
 | `cargo clippy --all-targets --features local-neural -- -D warnings` | pass |
 | `cargo test --workspace` | **101 passed** (56 gateway + 32 runtime + 13 domain) |
 | `cargo test -p voice-runtime --features local-neural` | **63 passed** |
-| `uv run ruff check .` | **not clean**: 66 pre-existing violations (see baseline audit); workflow files pass targeted checks |
-| `uv run --group dev python -m pytest -q` | **98 passed** |
+| `uv run ruff check .` | **not clean**: 38 pre-existing violations (see baseline audit); workflow files pass targeted checks |
+| `uv run --group dev python -m pytest -q` | **99 passed** |
 | `npx tsc --noEmit` | pass |
 | `npm run build` | pass |
 | Live native gateway smoke | health, sessions, speech, chunked speech, transcription, recording export/clear/delete, auth rejection |
@@ -131,13 +131,13 @@ Pending:
 1. TLS/WSS termination and deployment reference.
 2. Shared/distributed rate limits and quotas.
 3. Tenant isolation and scoped recruiter/admin credentials.
-4. Audit log for destructive/review/export actions. Gateway provider/scheduler
-   actions are covered; AI-service review/delete auditing remains pending.
+4. Audit retention and operator access for AI-service review/delete/export
+   events; gateway provider/scheduler actions are covered.
 5. Recruiter priorities, behavioral templates, editable question-compliance
    policy, and evidence-linked red flags are implemented.
-5. Consent/retention policy UI and disk-backed audio controls.
-6. Encryption at rest, key rotation, dependency vulnerability scanning.
-7. Load/latency/resource measurements and failure injection.
+6. Consent/retention policy UI and disk-backed audio controls.
+7. Encryption at rest, key rotation, dependency vulnerability scanning.
+8. Load/latency/resource measurements and failure injection.
 
 ## Phase 6 — Documentation and release
 
@@ -385,7 +385,7 @@ sufficient. Do not implement a text-only bot and call it a live interviewer.
 | Managed-call workflow | Implemented, not live-verified | Mock HTTP transport tests only |
 | Shared channel-independent domain | Implemented and tested | Rust contracts + SQLite mapping/idempotency + cross-channel tests |
 | Channel-neutral session/message API | Implemented and tested | `/channels/{channel}/sessions` and `/messages` |
-| Workflow artifact lifecycle | Implemented and tested | `/workflows`; 98-test suite includes hash, approval, failure, rollback, concurrency, migrations |
+| Workflow artifact lifecycle | Implemented and tested | `/workflows`; 99-test suite includes hash, approval, failure, rollback, concurrency, migrations |
 | Live workflow deployment routing | Pending | Production deployments are registry state; no session runtime consumes them yet |
 | Twilio outbound/inbound voice | Implemented, not live-verified | Signed webhook + TwiML smoke; live account needed |
 | Twilio real-time media | Implemented, not live-verified | Signed TwiML + WebSocket media smoke; no live call |
@@ -488,8 +488,8 @@ documentation-based and must be re-verified against the operating account.
 1. Add resume-policy/resume tests and gateway/client reconnect support.
 2. Run live-provider validation for the already implemented Twilio/WhatsApp/
    calendar adapters, or record the exact credential/approval blockers.
-3. Complete tenant isolation, TLS/WSS, AI-service audit, and consent/retention
-   controls before any remote deployment.
+3. Complete tenant isolation, TLS/WSS, AI-service audit retention/access, and
+   consent/retention controls before any remote deployment.
 4. Add availability/reschedule/no-show workflow on top of the existing scheduler
    and calendar layer.
 5. Route new interview sessions to the active production workflow artifact and

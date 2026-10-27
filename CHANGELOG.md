@@ -22,8 +22,11 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
   replay, provider validation, artifact-hash verification on read, workflow API
   error mapping, single-active-deployment enforcement, and schema migrations.
 - Added AI-service audit events for review, deletion, and report-export actions.
-- 40 new Python tests; full ai-service suite is now 98 passed. New workflow files
-  pass Ruff; 66 pre-existing repository-wide Ruff violations remain.
+- Replaced dynamic SQL identifier interpolation with fixed statements and
+  allowlisted values; fixed the interview-metadata insert placeholder mismatch
+  and removed a duplicate reader.
+- 41 new Python tests; full ai-service suite is now 99 passed. New workflow files
+  pass Ruff; 38 pre-existing repository-wide Ruff violations remain.
 - Documented the lifecycle, API, configuration, security model, and explicit
   limitation that live sessions do not yet route to active deployments in
   [`docs/WORKFLOWS.md`](docs/WORKFLOWS.md).

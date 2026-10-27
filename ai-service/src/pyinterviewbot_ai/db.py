@@ -26,6 +26,25 @@ from .resume import ResumeClaim
 
 DB_PATH = os.environ.get("PYINTERVIEWBOT_DB_PATH", "data/pyinterviewbot.db")
 
+SESSION_COLUMN_MIGRATIONS = (
+    (
+        "resume_enabled",
+        "ALTER TABLE sessions ADD COLUMN resume_enabled INTEGER NOT NULL DEFAULT 1",
+    ),
+    (
+        "resume_window_minutes",
+        "ALTER TABLE sessions ADD COLUMN resume_window_minutes INTEGER NOT NULL DEFAULT 1440",
+    ),
+    (
+        "resume_deadline",
+        "ALTER TABLE sessions ADD COLUMN resume_deadline TEXT",
+    ),
+    (
+        "resume_count",
+        "ALTER TABLE sessions ADD COLUMN resume_count INTEGER NOT NULL DEFAULT 0",
+    ),
+)
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
@@ -303,14 +322,9 @@ async def init_db() -> None:
             await db.execute(
                 "ALTER TABLE sessions ADD COLUMN token_hash TEXT NOT NULL DEFAULT ''"
             )
-        for name, definition in (
-            ("resume_enabled", "INTEGER NOT NULL DEFAULT 1"),
-            ("resume_window_minutes", "INTEGER NOT NULL DEFAULT 1440"),
-            ("resume_deadline", "TEXT"),
-            ("resume_count", "INTEGER NOT NULL DEFAULT 0"),
-        ):
+        for name, statement in SESSION_COLUMN_MIGRATIONS:
             if name not in columns:
-                await db.execute(f"ALTER TABLE sessions ADD COLUMN {name} {definition}")
+                await db.execute(statement)
         from .compliance import DEFAULT_CATEGORIES
 
         for category in DEFAULT_CATEGORIES:
@@ -690,29 +704,24 @@ async def update_compliance_category(
     enabled: bool | None = None,
     patterns: list[str] | None = None,
 ) -> bool:
-    fields: list[str] = []
-    values: list[object] = []
-    if label is not None:
-        fields.append("label = ?")
-        values.append(label)
-    if description is not None:
-        fields.append("description = ?")
-        values.append(description)
-    if enabled is not None:
-        fields.append("enabled = ?")
-        values.append(1 if enabled else 0)
-    if patterns is not None:
-        fields.append("patterns_json = ?")
-        values.append(json.dumps(patterns))
-    if not fields:
+    if label is None and description is None and enabled is None and patterns is None:
         return False
-    fields.append("updated_at = ?")
-    values.append(_now())
-    values.append(category)
     async with connect() as db:
         cursor = await db.execute(
-            f"UPDATE compliance_policy SET {', '.join(fields)} WHERE category = ?",
-            values,
+            "UPDATE compliance_policy SET "
+            "label = COALESCE(?, label), "
+            "description = COALESCE(?, description), "
+            "enabled = COALESCE(?, enabled), "
+            "patterns_json = COALESCE(?, patterns_json), "
+            "updated_at = ? WHERE category = ?",
+            (
+                label,
+                description,
+                None if enabled is None else int(enabled),
+                None if patterns is None else json.dumps(patterns),
+                _now(),
+                category,
+            ),
         )
         await db.commit()
         return cursor.rowcount > 0
@@ -774,13 +783,12 @@ async def create_interview_metadata(
 ) -> None:
     """Create or update interview metadata for a session."""
     async with connect() as db:
-        now = _now()
         await db.execute(
-            """INSERT INTO interview_metadata 
-            (session_id, position_title, candidate_name, candidate_email, 
+            """INSERT INTO interview_metadata
+            (session_id, position_title, candidate_name, candidate_email,
              interviewer_name, interviewer_email, scheduled_at, duration_minutes,
              status, location, meeting_url, notes, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(session_id) DO UPDATE SET
                 position_title=excluded.position_title,
                 candidate_name=excluded.candidate_name,
@@ -795,21 +803,21 @@ async def create_interview_metadata(
                 notes=excluded.notes,
                 updated_at=excluded.updated_at""",
             (
-                session_id,
-                metadata.get('position_title'),
-                metadata.get('candidate_name'),
-                metadata.get('candidate_email'),
-                metadata.get('interviewer_name'),
-                metadata.get('interviewer_email'),
-                metadata.get('scheduled_at'),
-                metadata.get('duration_minutes', 60),
-                metadata.get('status', 'scheduled'),
-                metadata.get('location'),
-                metadata.get('meeting_url'),
-                metadata.get('notes'),
+                str(session_id),
+                metadata.get("position_title"),
+                metadata.get("candidate_name"),
+                metadata.get("candidate_email"),
+                metadata.get("interviewer_name"),
+                metadata.get("interviewer_email"),
+                metadata.get("scheduled_at"),
+                metadata.get("duration_minutes", 60),
+                metadata.get("status", "scheduled"),
+                metadata.get("location"),
+                metadata.get("meeting_url"),
+                metadata.get("notes"),
                 _now(),
-                _now()
-            )
+                _now(),
+            ),
         )
         await db.commit()
 
@@ -833,29 +841,43 @@ async def update_interview_metadata(
     metadata: dict
 ) -> bool:
     """Update interview metadata for a session."""
+    columns = (
+        "position_title",
+        "candidate_name",
+        "candidate_email",
+        "interviewer_name",
+        "interviewer_email",
+        "scheduled_at",
+        "duration_minutes",
+        "status",
+        "location",
+        "meeting_url",
+        "notes",
+    )
+    if not any(metadata.get(column) is not None for column in columns):
+        return False
     async with connect() as db:
-        fields = []
-        values = []
-        allowed_fields = [
-            'position_title', 'candidate_name', 'candidate_email',
-            'interviewer_name', 'interviewer_email', 'scheduled_at',
-            'duration_minutes', 'status', 'location', 'meeting_url', 'notes'
-        ]
-        for key, value in metadata.items():
-            if key in allowed_fields and value is not None:
-                fields.append(f"{key} = ?")
-                values.append(value)
-        if not fields:
-            return False
-        fields.append("updated_at = ?")
-        values.append(_now())
-        values.append(session_id)
-        async with connect() as db:
-            await db.execute(
-                f"UPDATE interview_metadata SET {', '.join(fields)} WHERE session_id = ?",
-                values
-            )
-            await db.commit()
+        await db.execute(
+            "UPDATE interview_metadata SET "
+            "position_title = COALESCE(?, position_title), "
+            "candidate_name = COALESCE(?, candidate_name), "
+            "candidate_email = COALESCE(?, candidate_email), "
+            "interviewer_name = COALESCE(?, interviewer_name), "
+            "interviewer_email = COALESCE(?, interviewer_email), "
+            "scheduled_at = COALESCE(?, scheduled_at), "
+            "duration_minutes = COALESCE(?, duration_minutes), "
+            "status = COALESCE(?, status), "
+            "location = COALESCE(?, location), "
+            "meeting_url = COALESCE(?, meeting_url), "
+            "notes = COALESCE(?, notes), "
+            "updated_at = ? WHERE session_id = ?",
+            (
+                *(metadata.get(column) for column in columns),
+                _now(),
+                str(session_id),
+            ),
+        )
+        await db.commit()
         return True
 
 
@@ -868,17 +890,3 @@ async def delete_interview_metadata(session_id: UUID) -> bool:
         )
         await db.commit()
         return cursor.rowcount > 0
-
-
-async def get_interview_metadata(session_id: UUID) -> dict | None:
-    """Get interview metadata for a session."""
-    async with connect() as db:
-        db.row_factory = aiosqlite.Row
-        cursor = await db.execute(
-            "SELECT * FROM interview_metadata WHERE session_id = ?",
-            (str(session_id),)
-        )
-        row = await cursor.fetchone()
-        if row:
-            return dict(row)
-        return None
