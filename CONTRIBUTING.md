@@ -67,6 +67,20 @@ in for a Python test suite right now. Adding real `pytest` coverage for
 `ai-service` is one of the most valuable contributions this project can
 currently take (see `docs/internal/ROADMAP_HONEST.md`).
 
+## Dependency policy
+
+- Registry dependencies are pinned through `Cargo.lock`, `uv.lock`, and
+  `package-lock.json`; do not commit unpinned ranges that bypass those locks.
+- Any dependency sourced from a Git repository must be forked into the project's
+  GitHub owner account first, then pinned to a commit in that fork. Do not add a
+  Git URL that points only at an upstream third-party repository.
+- Prefer vendoring a small Git dependency when the fork is not controlled by the
+  project owner; a GitHub fork is independent, but a vendored copy survives both
+  upstream deletion and account loss.
+- Record the fork/vendored location and pinned commit in the PR description.
+- The current build has no Git-URL dependencies; this rule applies to future
+  additions.
+
 ## Code style
 
 - Rust: `rustfmt` defaults, `clippy -D warnings` must be clean.
