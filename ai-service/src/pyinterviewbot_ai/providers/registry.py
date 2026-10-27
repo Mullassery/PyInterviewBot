@@ -27,6 +27,16 @@ _ENV_BY_KIND = {
     "llm": "PYINTERVIEWBOT_LLM_PROVIDER",
 }
 
+_KNOWN_PROVIDERS = {
+    "asr": frozenset({"local", "mock", "openrouter"}),
+    "tts": frozenset({"local", "mock", "openrouter"}),
+    "llm": frozenset({"local", "mock", "openrouter"}),
+}
+
+
+def provider_is_known(kind: str, provider: str) -> bool:
+    return provider in _KNOWN_PROVIDERS.get(kind, frozenset())
+
 
 def _select(kind: str) -> str:
     env_name = _ENV_BY_KIND[kind]
@@ -133,6 +143,7 @@ __all__ = [
     "get_asr",
     "get_language_model",
     "get_tts",
+    "provider_is_known",
     "provider_status",
     "reset_providers",
     "transcribe_media",

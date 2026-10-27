@@ -24,9 +24,11 @@ class InterviewTemplate:
     max_turns: int = 6
     system_prompt: str = ""
     evaluation_notes: str = ""
+    version: int = 1
 
 
 DEFAULT_TEMPLATE_ID = "rag_architect"
+TEMPLATE_VERSION = 1
 
 RAG_SYSTEM_PROMPT = """You are a senior technical interviewer conducting a live spoken interview.
 Your tone is professional, calm, intelligent, neutral, and conversational — never a checklist,
@@ -261,6 +263,7 @@ def list_templates() -> list[dict[str, str]]:
 __all__ = [
     "DEFAULT_TEMPLATE_ID",
     "TEMPLATES",
+    "TEMPLATE_VERSION",
     "InterviewTemplate",
     "get_template",
     "list_templates",

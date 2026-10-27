@@ -11,11 +11,26 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
+import logging
 import os
+from dataclasses import dataclass
 
 from fastapi import Header, HTTPException, Request
 
 API_KEY_ENV = "PYINTERVIEWBOT_API_KEY"
+PRINCIPALS_ENV = "PYINTERVIEWBOT_PRINCIPALS"
+DEFAULT_ROLES = frozenset({"owner", "author", "approver", "deployer"})
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class Principal:
+    subject: str
+    roles: frozenset[str] = DEFAULT_ROLES
+
+    def has_role(self, role: str) -> bool:
+        return role in self.roles or "admin" in self.roles
 
 
 def _loopback(host: str | None) -> bool:
@@ -24,23 +39,73 @@ def _loopback(host: str | None) -> bool:
     return host in {"127.0.0.1", "::1", "localhost"} or host.startswith("127.")
 
 
+def _supplied_key(x_api_key: str | None, authorization: str | None) -> str | None:
+    supplied = x_api_key
+    if not supplied and authorization and authorization.lower().startswith("bearer "):
+        supplied = authorization[7:].strip()
+    return supplied
+
+
+def _configured_principals() -> dict[str, Principal]:
+    raw = os.environ.get(PRINCIPALS_ENV, "").strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.error("ignoring invalid %s JSON", PRINCIPALS_ENV)
+        return {}
+    if not isinstance(parsed, dict):
+        logger.error("ignoring invalid %s value; expected an object", PRINCIPALS_ENV)
+        return {}
+    principals: dict[str, Principal] = {}
+    for key, value in parsed.items():
+        if not isinstance(key, str) or not isinstance(value, dict):
+            continue
+        subject = value.get("subject")
+        roles = value.get("roles", [])
+        if not isinstance(subject, str) or not subject or not isinstance(roles, list):
+            continue
+        principals[key] = Principal(
+            subject=subject,
+            roles=frozenset(role for role in roles if isinstance(role, str) and role),
+        )
+    return principals
+
+
+def _match_principal(supplied: str) -> Principal | None:
+    for key, principal in _configured_principals().items():
+        if hmac.compare_digest(supplied, key):
+            return principal
+    expected = os.environ.get(API_KEY_ENV)
+    if expected and hmac.compare_digest(supplied, expected):
+        subject = os.environ.get("PYINTERVIEWBOT_API_KEY_SUBJECT", "local-operator")
+        raw_roles = os.environ.get("PYINTERVIEWBOT_API_KEY_ROLES", "")
+        roles = (
+            frozenset(role.strip() for role in raw_roles.split(",") if role.strip())
+            if raw_roles
+            else DEFAULT_ROLES
+        )
+        return Principal(subject=subject, roles=roles)
+    return None
+
+
 async def require_auth(
     request: Request,
     x_api_key: str | None = Header(default=None),
     authorization: str | None = Header(default=None),
-) -> None:
-    expected = os.environ.get(API_KEY_ENV)
-    if expected:
-        supplied = x_api_key
-        if (
-            not supplied
-            and authorization
-            and authorization.lower().startswith("bearer ")
-        ):
-            supplied = authorization[7:].strip()
-        if not supplied or not hmac.compare_digest(supplied, expected):
+) -> Principal:
+    configured = bool(os.environ.get(API_KEY_ENV)) or bool(
+        os.environ.get(PRINCIPALS_ENV)
+    )
+    if configured:
+        supplied = _supplied_key(x_api_key, authorization)
+        if not supplied:
             raise HTTPException(status_code=401, detail="invalid or missing API key")
-        return
+        principal = _match_principal(supplied)
+        if principal is None:
+            raise HTTPException(status_code=401, detail="invalid or missing API key")
+        return principal
     client = request.client.host if request.client else None
     if not _loopback(client):
         raise HTTPException(
@@ -50,6 +115,7 @@ async def require_auth(
                 f"{API_KEY_ENV} and send X-API-Key"
             ),
         )
+    return Principal(subject="local-loopback", roles=DEFAULT_ROLES)
 
 
 def hash_session_token(token: str) -> str:
@@ -74,6 +140,9 @@ def session_token_required() -> bool:
 
 __all__ = [
     "API_KEY_ENV",
+    "DEFAULT_ROLES",
+    "PRINCIPALS_ENV",
+    "Principal",
     "hash_session_token",
     "require_auth",
     "session_token_matches",

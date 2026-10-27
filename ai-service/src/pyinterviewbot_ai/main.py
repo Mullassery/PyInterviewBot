@@ -49,6 +49,7 @@ from .models import (
     TurnResponse,
 )
 from .providers import ProviderError
+from .workflow_api import router as workflow_router
 
 # Default to the candidate-client's actual dev server origins (Vite's
 # default port, on both `localhost` and `127.0.0.1` since browsers treat
@@ -93,6 +94,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="PyInterviewBot ai-service", lifespan=lifespan)
+app.include_router(workflow_router)
 
 
 @app.exception_handler(ProviderError)

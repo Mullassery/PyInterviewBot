@@ -213,6 +213,23 @@ Every non-health ai-service endpoint requires authentication:
   default 120/60s) applies per API key or client IP. `0` disables the
   in-process limiter; use a shared proxy limit for multi-worker deployments.
 
+### Workflow authorization
+
+Workflow routes use a separate principals/roles map instead of the legacy
+global key:
+
+```bash
+PYINTERVIEWBOT_PRINCIPALS='{"alice-key":{"subject":"alice","roles":["owner","author","deployer"]},"bob-key":{"subject":"bob","roles":["approver"]}}'
+PYINTERVIEWBOT_PRODUCTION_BINDING_REVISION=prod-2026-10
+```
+
+Published workflow versions are immutable and content-hashed. Promotion requires
+the same hash to pass the fixed mock sandbox, receive an approval from the
+assigned approver, and match a capable production binding. Rollback requires the
+same production binding fingerprint. The production deployment is currently a
+registry entry; live candidate sessions do not yet consume it. See
+[`docs/WORKFLOWS.md`](docs/WORKFLOWS.md).
+
 The gateway forwards its ai-service key automatically. `/health` remains
 unauthenticated for probes. Session tokens are defense-in-depth, not a
 replacement for scoped/tenant authorization; see

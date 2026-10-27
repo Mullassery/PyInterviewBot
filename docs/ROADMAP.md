@@ -1,7 +1,7 @@
 # PyInterviewBot Execution Roadmap
 
 Last revised: 2026-10-26
-Repository snapshot: working tree after canonical call-state implementation
+Repository snapshot: working tree after canonical call-state and workflow-artifact implementation
 
 This document records completed work, pending work, external blockers, and the
 dependency order for the multi-channel platform. It is evidence-based: a feature
@@ -32,8 +32,8 @@ Companion documents:
 | `cargo clippy --all-targets --features local-neural -- -D warnings` | pass |
 | `cargo test --workspace` | **101 passed** (56 gateway + 32 runtime + 13 domain) |
 | `cargo test -p voice-runtime --features local-neural` | **63 passed** |
-| `uv run ruff check .` | **not clean**: 94 pre-existing violations (see baseline audit) |
-| `uv run --group dev python -m pytest -q` | **58 passed** |
+| `uv run ruff check .` | **not clean**: 94 pre-existing violations (see baseline audit); workflow files pass targeted checks |
+| `uv run --group dev python -m pytest -q` | **85 passed** |
 | `npx tsc --noEmit` | pass |
 | `npm run build` | pass |
 | Live native gateway smoke | health, sessions, speech, chunked speech, transcription, recording export/clear/delete, auth rejection |
@@ -114,6 +114,17 @@ Implemented and tested:
 - Per-session turn tokens (hash at rest) with optional enforcement.
 - In-process rate limiting, audio/body/frame limits, readiness checks.
 - Session/recording deletion, structured logs, stable JSON errors.
+- Workflow artifact lifecycle with principal/role authorization, immutable
+  canonical hashes, fixed mock sandbox suites, separated approval, exact-hash
+  promotion, failed-deployment history, binding-aware rollback, and audit
+  events. See [`docs/WORKFLOWS.md`](WORKFLOWS.md).
+
+Pending for workflows:
+
+1. Route live candidate sessions to the active production workflow deployment.
+2. Add an operator UI/CLI and signed promotion evidence export.
+3. Add retention/cleanup policy for workflow audit and test evidence.
+4. Extend principal scoping beyond the workflow API to the rest of ai-service.
 
 Pending:
 
@@ -374,6 +385,8 @@ sufficient. Do not implement a text-only bot and call it a live interviewer.
 | Managed-call workflow | Implemented, not live-verified | Mock HTTP transport tests only |
 | Shared channel-independent domain | Implemented and tested | Rust contracts + SQLite mapping/idempotency + cross-channel tests |
 | Channel-neutral session/message API | Implemented and tested | `/channels/{channel}/sessions` and `/messages` |
+| Workflow artifact lifecycle | Implemented and tested | `/workflows`; 85-test suite includes hash, approval, failure, rollback, concurrency |
+| Live workflow deployment routing | Pending | Production deployments are registry state; no session runtime consumes them yet |
 | Twilio outbound/inbound voice | Implemented, not live-verified | Signed webhook + TwiML smoke; live account needed |
 | Twilio real-time media | Implemented, not live-verified | Signed TwiML + WebSocket media smoke; no live call |
 | WhatsApp text interviews | Implemented, not live-verified | Signed webhook smoke; approval needed |
@@ -406,7 +419,8 @@ complete in README, sales material, or release notes.
 | Multilingual interviews | Missing | English-first templates/ASR/TTS | Global hiring limitation | P2 |
 | Role benchmarks / scorecard versioning | Missing | Evidence reports exist; no calibrated role bands or rubric version field | Comparability across candidates/roles | P1 |
 | PDF/recruiter export UI | Partial | JSON/Markdown/HTML/CSV API; no PDF or UI | Recruiter workflow friction | P2 |
-| Tenant isolation / scoped credentials | Missing | One global key; session tokens are partial | Cross-tenant data leakage | P0 |
+| Tenant isolation / scoped credentials | Partial | Workflow API uses principals/roles; interview routes still use one global key and session tokens are partial | Cross-tenant data leakage outside workflow scope | P0 |
+| Live workflow deployment routing | Missing | Production deployment rows are audited registry state; no session runtime selects them | Operators can promote but cannot yet serve that artifact | P0 |
 | TLS/WSS deployment | Missing | Docs only; local HTTP/WS defaults | Remote deployment unsafe | P0 |
 | Consent/retention operations | Partial | Delete endpoints; no policy UI/automation or disk audio retention | Privacy/legal exposure | P0 |
 | AI-service audit coverage | Partial | Gateway audit only; review/delete/export in ai-service not audited | Weak accountability | P0 |
@@ -477,6 +491,8 @@ documentation-based and must be re-verified against the operating account.
    controls before any remote deployment.
 4. Add availability/reschedule/no-show workflow on top of the existing scheduler
    and calendar layer.
+5. Route new interview sessions to the active production workflow artifact and
+   add retention/UI/CLI support around the workflow registry.
 
 Do not add proctoring, biometric identity checks, or personality/MBTI inference
 without legal/privacy review and explicit candidate consent.

@@ -97,3 +97,27 @@ Not verified: live Twilio voice/media, live Vapi calls, live WhatsApp calls,
 Teams join/transcripts, backup/restore against production-sized data, and
 multi-replica operation. SQLite remains single-node only. See
 [`docs/CALL_STATE.md`](../CALL_STATE.md).
+
+## 2026-10-26 workflow verification
+
+The ai-service now has a workflow artifact lifecycle. New workflow source and
+tests pass targeted Ruff checks; the repository-wide Ruff baseline remains 94
+pre-existing violations in unrelated files.
+
+| Command | Result |
+|---|---|
+| `uv run python -c "from pyinterviewbot_ai.main import app; print('import OK')"` | `import OK` |
+| `uv run --group dev python -m pytest -q` (from `ai-service`) | **85 passed**, 2 dependency deprecation warnings |
+| `uv run --group dev ruff check <workflow files>` | pass |
+| `uv run --group dev ruff check .` (from `ai-service`) | **not clean**: 94 pre-existing violations |
+
+Verified behavior: strict canonical hashing, immutable versions, idempotent
+publishing, concurrent version allocation, fixed mock sandbox, mandatory suites,
+assigned approval, exact-hash promotion, failed-promotion preservation,
+ownership/role isolation, approval URL binding, binding-aware rollback, and
+audit events. Workflow state is stored in the ai-service interview SQLite
+database, separate from the Rust-owned call-state database.
+
+Not verified: live candidate-session routing to an active workflow deployment,
+operator UI/CLI, workflow evidence retention/cleanup, and production provider
+execution. See [`docs/WORKFLOWS.md`](../WORKFLOWS.md).

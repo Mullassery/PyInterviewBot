@@ -21,6 +21,13 @@ simplifies the full product spec (and why).
 > Vapi-compatible managed-call webhooks are mapped into that store. See
 > [`docs/CALL_STATE.md`](CALL_STATE.md) and
 > [`docs/adr/0005-rust-owned-call-state.md`](adr/0005-rust-owned-call-state.md).
+>
+> **2026-10-26 workflow update:** ai-service now exposes a user-owned workflow
+> artifact lifecycle: immutable content-hashed versions, a fixed mock sandbox,
+> mandatory deterministic suites, separated approval, exact-hash production
+> promotion, deployment failure history, and binding-aware rollback. This is a
+> deployment registry; live candidate sessions do not yet consume an active
+> workflow deployment. See [`docs/WORKFLOWS.md`](WORKFLOWS.md).
 
 ## Layers
 
@@ -77,11 +84,14 @@ ai-service/ (Python, FastAPI, uv-managed)
    - resume.py — a single seeded resume claim (see "Not implemented"
      below — there's no real resume upload/parser yet).
    - db.py — SQLite, the system of record for sessions, transcript
-     segments, and evidence. State lives here, not just inside an LLM's
-     context window.
+     segments, evidence, and the workflow lifecycle registry. State lives
+     here, not just inside an LLM's context window.
+   - workflow_*.py — immutable workflow artifacts, sandbox suites,
+     approvals, exact-hash promotion, deployment history, and rollback.
    - main.py — FastAPI routes tying it together, plus a read-only
      `/sessions` + `/sessions/{id}/summary` pair the recruiter view reads
-     directly (see "Two client surfaces" below).
+     directly (see "Two client surfaces" below), and the owner-scoped
+     `/workflows` API.
    ↓
 candidate-client/ (Vite/TS)
    - AudioWorklet (public/pcm-worklet.js) downsamples the mic to 16kHz
@@ -123,6 +133,47 @@ provider SID returned by the create-call API, and persist signed status
 callbacks tagged with the internal call UUID. Vapi-compatible managed-call
 webhooks map status updates and `end-of-call-report` into the same state machine.
 The call workflow is disabled unless `GATEWAY_CALLS_ENABLED=true`.
+
+## Workflow artifact lifecycle
+
+```
+owner draft
+   │ publish
+   ▼
+immutable version + canonical SHA-256
+   │
+   ▼
+fixed mock sandbox deployment ──> mandatory suites
+   │                                  │
+   │                                  ▼
+   │                         test run tied to hash
+   │                                  │
+   │                                  ▼
+   │                         approval tied to test run
+   │                                  │
+   ▼                                  ▼
+production dry-run ──> exact tested + approved hash promoted
+   │                                  │
+   │ failure                          ▼
+   └──> failed row + audit      active deployment
+                                      │ rollback
+                                      ▼
+                         prior deployment with same binding
+```
+
+Artifacts contain the workflow definition and a pinned template snapshot.
+Environment bindings, provider credentials, test evidence, approval state, and
+deployment state are kept outside the hashed payload. Promotion re-checks the
+hash, test run, approval, workflow status, and production binding capability in
+one transaction. A failure is recorded without replacing the last active
+deployment. Rollback requires the current production binding fingerprint to
+match the target deployment.
+
+Workflow state is stored in the ai-service interview SQLite database, not the
+Rust-owned call-state database. Workflow routes are protected by principal and
+role checks; the gateway's transport authentication is not reused as workflow
+authorization. Full API, role, environment, failure, and limitation details are
+in [`docs/WORKFLOWS.md`](WORKFLOWS.md).
 
 ## Component flow
 

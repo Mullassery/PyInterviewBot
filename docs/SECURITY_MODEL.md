@@ -1,15 +1,20 @@
 # Security and privacy model — current state
 
-Last reviewed: 2026-10-25. This complements `SECURITY.md` (reporting and known
-gaps) and `docs/CAPABILITY_MATRIX.md` (provider/licence boundaries).
+Last reviewed: 2026-10-26. This complements `SECURITY.md` (reporting and known
+gaps) and `docs/CAPABILITY_MATRIX.md` (provider/licence boundaries). Workflow
+artifact identity and promotion controls are detailed in
+[`docs/WORKFLOWS.md`](WORKFLOWS.md).
 
 ## Assets
 
 - Candidate audio in transit, transcripts, evidence, reports, reviewer notes.
-- Provider credentials: `PYINTERVIEWBOT_API_KEY`, `GATEWAY_API_KEY`,
-  `AI_SERVICE_API_KEY`, `MANAGED_CALL_API_KEY`,
-  `MANAGED_CALL_WEBHOOK_SECRET`.
-- Model files and local SQLite data.
+- Workflow drafts, immutable artifacts, sandbox evidence, approvals, deployment
+  history, and production binding fingerprints.
+- Provider credentials: `PYINTERVIEWBOT_API_KEY`,
+  `PYINTERVIEWBOT_PRINCIPALS`, `GATEWAY_API_KEY`, `AI_SERVICE_API_KEY`,
+  `MANAGED_CALL_API_KEY`, `MANAGED_CALL_WEBHOOK_SECRET`.
+- Model files, workflow data, interview data, and the separate Rust call-state
+  SQLite database.
 
 ## Trust boundaries
 
@@ -21,7 +26,10 @@ gaps) and `docs/CAPABILITY_MATRIX.md` (provider/licence boundaries).
    services. Transcripts/model outputs are untrusted input to evaluation.
 4. **Recruiter client → ai-service**: privileged transcript/evidence/report
    access.
-5. **Optional managed-call provider → service webhook**: unauthenticated unless
+5. **Workflow author/approver/deployer → ai-service**: privileged artifact and
+   production-control access; workflow roles and ownership are enforced
+   independently of gateway transport auth.
+6. **Optional managed-call provider → service webhook**: unauthenticated unless
    the operator configures a Bearer/HMAC credential and verifies it.
 
 ## Implemented controls
@@ -46,14 +54,27 @@ gaps) and `docs/CAPABILITY_MATRIX.md` (provider/licence boundaries).
 | Webhook spoofing | Constant-time provider signature checks (Twilio HMAC-SHA1; managed-call Bearer/HMAC) |
 | Prompt/model output treating as truth | Evidence notes flagged as model inference; transcript quotes are the observed evidence |
 | Unknown provider misconfiguration | Registry fails closed with a clear error |
+| Workflow authorization | Principal map plus owner checks and `author`/`approver`/`deployer`/`admin` roles; no client-chosen owner |
+| Workflow artifact tampering | Immutable versions with canonical SHA-256 verification; strict schemas reject unknown fields |
+| Approval shortcuts | Approval must reference a passing test run and hash; requester cannot self-approve; assigned approver must be the decider |
+| Promoting untested artifacts | Promotion requires the exact tested and approved hash plus a capability-compatible production binding |
+| Sandbox escaping | Sandbox binding is fixed to mock `llm`/`asr`/`tts`; policy tests forbid external side effects/network |
+| Production binding drift | Binding fingerprint is persisted; rollback rejects a target made under a different binding or when binding config is unavailable |
+| Failed secret handling | Artifacts and deployment records store no provider credentials; only provider names and a binding fingerprint |
 
 ## Open risks
 
 - No TLS/WSS termination in this repo. Run behind a trusted reverse proxy.
-- One global API key; session tokens protect `/turn` when enforcement is on, but
-  any global-key holder can still read any session UUID. There is no tenant
-  isolation or scoped recruiter key. Do not expose the recruiter API across
-  trust boundaries yet.
+- Interview/session routes still accept one global API key; session tokens
+  protect `/turn` when enforcement is on, but any global-key holder can still
+  read any session UUID. There is no tenant isolation or scoped recruiter key.
+  Do not expose the recruiter API across trust boundaries yet. Workflow routes
+  use the newer principals/roles map, but it does not isolate non-workflow data.
+- Workflow production deployment is a registry action only. No candidate
+  session runtime selects the active deployment yet, so a production row must
+  not be represented as a live workflow serving interviews.
+- Workflow audit covers lifecycle mutations, not reads, and relies on SQLite
+  file permissions and backups for tamper resistance.
 - Rate limiting is per-process only. Add a shared proxy/gateway limit and
   quotas before network deployment.
 - The interview WebSocket flow does not record audio. The native studio has an

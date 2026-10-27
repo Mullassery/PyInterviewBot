@@ -124,6 +124,113 @@ CREATE TABLE IF NOT EXISTS interview_metadata (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS workflows (
+    id TEXT PRIMARY KEY,
+    owner_subject TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    template_id TEXT NOT NULL,
+    draft_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (owner_subject, name)
+);
+
+CREATE TABLE IF NOT EXISTS workflow_versions (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL,
+    content_hash TEXT NOT NULL,
+    artifact_json TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    idempotency_key TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE (workflow_id, version),
+    UNIQUE (workflow_id, idempotency_key)
+);
+
+CREATE TABLE IF NOT EXISTS workflow_test_runs (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    content_hash TEXT NOT NULL,
+    environment TEXT NOT NULL,
+    deployment_id TEXT NOT NULL,
+    binding_fingerprint TEXT NOT NULL,
+    status TEXT NOT NULL,
+    evidence_json TEXT NOT NULL,
+    requested_by TEXT NOT NULL,
+    idempotency_key TEXT,
+    failure_reason TEXT,
+    created_at TEXT NOT NULL,
+    completed_at TEXT,
+    FOREIGN KEY (workflow_id, version)
+        REFERENCES workflow_versions(workflow_id, version) ON DELETE CASCADE,
+    UNIQUE (workflow_id, idempotency_key)
+);
+
+CREATE TABLE IF NOT EXISTS workflow_approvals (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    content_hash TEXT NOT NULL,
+    test_run_id TEXT NOT NULL REFERENCES workflow_test_runs(id),
+    status TEXT NOT NULL,
+    requested_by TEXT NOT NULL,
+    approver_subject TEXT NOT NULL,
+    decided_by TEXT,
+    request_note TEXT NOT NULL DEFAULT '',
+    decision_note TEXT NOT NULL DEFAULT '',
+    idempotency_key TEXT,
+    created_at TEXT NOT NULL,
+    decided_at TEXT,
+    FOREIGN KEY (workflow_id, version)
+        REFERENCES workflow_versions(workflow_id, version) ON DELETE CASCADE,
+    UNIQUE (workflow_id, idempotency_key)
+);
+
+CREATE TABLE IF NOT EXISTS workflow_deployments (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    environment TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    binding_fingerprint TEXT NOT NULL,
+    status TEXT NOT NULL,
+    previous_deployment_id TEXT,
+    actor_subject TEXT NOT NULL,
+    test_run_id TEXT,
+    approval_id TEXT,
+    idempotency_key TEXT,
+    failure_reason TEXT,
+    created_at TEXT NOT NULL,
+    activated_at TEXT,
+    FOREIGN KEY (workflow_id, version)
+        REFERENCES workflow_versions(workflow_id, version) ON DELETE CASCADE,
+    UNIQUE (workflow_id, idempotency_key)
+);
+
+CREATE TABLE IF NOT EXISTS workflow_audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    workflow_id TEXT NOT NULL,
+    version INTEGER,
+    action TEXT NOT NULL,
+    actor_subject TEXT NOT NULL,
+    details_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_workflow_versions_workflow
+    ON workflow_versions(workflow_id, version);
+CREATE INDEX IF NOT EXISTS idx_workflow_test_runs_version
+    ON workflow_test_runs(workflow_id, version, created_at);
+CREATE INDEX IF NOT EXISTS idx_workflow_approvals_version
+    ON workflow_approvals(workflow_id, version, created_at);
+CREATE INDEX IF NOT EXISTS idx_workflow_deployments_env
+    ON workflow_deployments(workflow_id, environment, created_at);
+CREATE INDEX IF NOT EXISTS idx_workflow_audit_workflow
+    ON workflow_audit(workflow_id, id);
 
 """
 
@@ -131,6 +238,8 @@ CREATE TABLE IF NOT EXISTS interview_metadata (
 async def init_db() -> None:
     os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
     async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("PRAGMA foreign_keys = ON")
+        await db.execute("PRAGMA busy_timeout = 5000")
         await db.executescript(SCHEMA)
         cursor = await db.execute("PRAGMA table_info(sessions)")
         columns = {row[1] for row in await cursor.fetchall()}
@@ -173,6 +282,8 @@ async def init_db() -> None:
 async def connect():
     db = await aiosqlite.connect(DB_PATH)
     try:
+        await db.execute("PRAGMA foreign_keys = ON")
+        await db.execute("PRAGMA busy_timeout = 5000")
         yield db
     finally:
         await db.close()

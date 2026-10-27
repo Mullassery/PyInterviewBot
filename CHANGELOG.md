@@ -6,6 +6,31 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
 
 ## [Unreleased]
 
+### Added (workflow artifacts)
+
+- Owner-scoped `/workflows` API with principal/role authorization (`owner`,
+  `author`, `approver`, `deployer`, `admin`) and legacy/loopback identities.
+- Immutable workflow versions with strict schema v1, pinned template snapshots,
+  canonical JSON, and SHA-256 content identity.
+- Fixed mock sandbox binding, mandatory deterministic suites (`schema_hash`,
+  `template_pinning`, `security_policy`, `sandbox_isolation`,
+  `mock_interview`), and a separate assigned-approver step.
+- Exact-hash production promotion with dry-run eligibility, durable deployment
+  history, failed-promotion rows that preserve the last good deployment,
+  binding-fingerprint rollback checks, and append-only workflow audit events.
+- 27 new Python tests; full ai-service suite is now 85 passed. New workflow files
+  pass Ruff; the 94 pre-existing repository-wide Ruff violations remain.
+- Documented the lifecycle, API, configuration, security model, and explicit
+  limitation that live sessions do not yet route to active deployments in
+  [`docs/WORKFLOWS.md`](docs/WORKFLOWS.md).
+
+### Changed (dependency policy)
+
+- Documented that Git-sourced dependencies must be forked into the project
+  owner's account and pinned to a commit before use; prefer vendoring when the
+  fork is not project-controlled. Existing registry dependencies remain pinned
+  by their lockfiles. The current build has no Git-URL dependencies.
+
 ### Added (2026-10-25)
 
 - Provider-neutral speech/language contracts and registry (`providers/`) with
