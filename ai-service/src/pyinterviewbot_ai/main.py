@@ -24,7 +24,7 @@ from . import (
     templates,
     workflow_routing,
 )
-from .auth import Principal, hash_session_token, require_auth
+from .auth import Principal, hash_session_token, require_auth, require_tenant_auth
 from .models import (
     ChannelMessageRequest,
     ChannelMessageResponse,
@@ -137,14 +137,18 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post(
-    "/sessions",
-    response_model=StartSessionResponse,
-    dependencies=[Depends(require_auth)],
-)
-async def create_session(req: StartSessionRequest) -> StartSessionResponse:
+@app.post("/sessions", response_model=StartSessionResponse)
+async def create_session(
+    req: StartSessionRequest,
+    principal: Annotated[Principal, Depends(require_tenant_auth)],
+) -> StartSessionResponse:
     try:
-        result = await agent.start_session(req.template_id, req.workflow_id)
+        result = await agent.start_session(
+            req.template_id,
+            req.workflow_id,
+            owner_subject=principal.subject,
+            allow_cross_tenant=principal.has_role("admin"),
+        )
     except workflow_routing.WorkflowRoutingError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except ValueError as exc:
@@ -187,15 +191,20 @@ async def turn(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@app.post(
-    "/channels/{channel}/sessions",
-    response_model=ChannelSessionResponse,
-    dependencies=[Depends(require_auth)],
-)
-async def channel_session(channel: str, req: ChannelSessionRequest) -> ChannelSessionResponse:
+@app.post("/channels/{channel}/sessions", response_model=ChannelSessionResponse)
+async def channel_session(
+    channel: str,
+    req: ChannelSessionRequest,
+    principal: Annotated[Principal, Depends(require_tenant_auth)],
+) -> ChannelSessionResponse:
     try:
         return await channels.start_or_resume(
-            channel, req.external_id, req.template_id, req.workflow_id
+            channel,
+            req.external_id,
+            req.template_id,
+            req.workflow_id,
+            owner_subject=principal.subject,
+            allow_cross_tenant=principal.has_role("admin"),
         )
     except workflow_routing.WorkflowRoutingError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
@@ -221,13 +230,14 @@ async def channel_message(channel: str, req: ChannelMessageRequest) -> ChannelMe
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
-@app.get(
-    "/sessions",
-    response_model=list[SessionListItem],
-    dependencies=[Depends(require_auth)],
-)
-async def list_sessions() -> list[SessionListItem]:
-    return await db.list_sessions()
+@app.get("/sessions", response_model=list[SessionListItem])
+async def list_sessions(
+    principal: Annotated[Principal, Depends(require_auth)],
+) -> list[SessionListItem]:
+    return await db.list_sessions(
+        owner_subject=principal.subject,
+        include_all=principal.has_role("admin"),
+    )
 
 
 @app.delete("/sessions/{session_id}")
@@ -236,7 +246,11 @@ async def delete_session(
     principal: Annotated[Principal, Depends(require_auth)],
 ) -> dict:
     """Delete a session and its transcript/evidence (retention)."""
-    deleted = await db.delete_session(session_id)
+    deleted = await db.delete_session(
+        session_id,
+        owner_subject=principal.subject,
+        include_all=principal.has_role("admin"),
+    )
     if not deleted:
         raise HTTPException(status_code=404, detail="session not found")
     await db.record_ai_audit(

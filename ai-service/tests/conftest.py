@@ -1,5 +1,7 @@
 from collections.abc import Iterator
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 from pyinterviewbot_ai import db, main, providers
@@ -11,6 +13,17 @@ def isolated_environment(tmp_path, monkeypatch) -> Iterator[None]:
     monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "test.db"))
     monkeypatch.setattr(main, "limiter", SlidingWindowLimiter(0))
     monkeypatch.setenv("PYINTERVIEWBOT_API_KEY", "test-key")
+    monkeypatch.setenv(
+        "PYINTERVIEWBOT_PRINCIPALS",
+        json.dumps(
+            {
+                "test-key": {
+                    "subject": "test-tenant",
+                    "roles": ["owner", "author", "deployer", "approver"],
+                }
+            }
+        ),
+    )
     monkeypatch.setenv("PYINTERVIEWBOT_LLM_PROVIDER", "mock")
     monkeypatch.setenv("PYINTERVIEWBOT_ASR_PROVIDER", "mock")
     monkeypatch.setenv("PYINTERVIEWBOT_TTS_PROVIDER", "mock")

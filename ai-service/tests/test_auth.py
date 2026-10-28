@@ -46,6 +46,7 @@ def test_health_needs_no_auth(monkeypatch):
 
 def test_non_loopback_without_key_is_rejected(monkeypatch):
     monkeypatch.delenv("PYINTERVIEWBOT_API_KEY", raising=False)
+    monkeypatch.delenv("PYINTERVIEWBOT_PRINCIPALS", raising=False)
     assert TestClient(app).post("/protected").status_code == 403
 
 

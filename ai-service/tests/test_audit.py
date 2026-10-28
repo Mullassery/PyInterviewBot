@@ -12,8 +12,8 @@ def _events() -> list[tuple]:
     async def fetch() -> list[tuple]:
         async with db.connect() as conn:
             cursor = await conn.execute(
-                "SELECT action, actor_subject, target_type, target_id, outcome, "
-                "details_json FROM ai_audit_events ORDER BY id"
+                "SELECT action, actor_subject, tenant_subject, target_type, target_id, "
+                "outcome, details_json FROM ai_audit_events ORDER BY id"
             )
             return await cursor.fetchall()
 
@@ -25,7 +25,6 @@ def test_review_export_and_delete_are_audited(
     auth_headers: dict[str, str],
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv("PYINTERVIEWBOT_API_KEY_SUBJECT", "recruiter-7")
     started = client.post(
         "/sessions", json={"template_id": "backend_engineer"}, headers=auth_headers
     )
@@ -55,13 +54,15 @@ def test_review_export_and_delete_are_audited(
 
     events = _events()
     assert [event[0] for event in events] == [
+        "session.start",
         "session.review",
         "report.export",
         "session.delete",
     ]
-    assert all(event[1] == "recruiter-7" for event in events)
-    assert all(event[2] == "session" for event in events)
-    assert all(event[3] == session_id for event in events)
-    assert all(event[4] == "success" for event in events)
-    assert '"node": "failure_handling"' in events[0][5]
-    assert '"format": "markdown"' in events[1][5]
+    assert all(event[1] == "test-tenant" for event in events)
+    assert all(event[2] == "test-tenant" for event in events)
+    assert all(event[3] == "session" for event in events)
+    assert all(event[4] == session_id for event in events)
+    assert all(event[5] == "success" for event in events)
+    assert '"node": "failure_handling"' in events[1][6]
+    assert '"format": "markdown"' in events[2][6]

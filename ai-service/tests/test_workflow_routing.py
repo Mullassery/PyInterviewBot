@@ -67,7 +67,9 @@ async def _active_route(monkeypatch) -> tuple[UUID, WorkflowVersionRecord, str]:
 async def test_start_session_with_workflow_pins_snapshot(monkeypatch) -> None:
     workflow_id, version, deployment_id = await _active_route(monkeypatch)
 
-    result = await agent.start_session("ignored_template", workflow_id)
+    result = await agent.start_session(
+        "ignored_template", workflow_id, owner_subject="alice"
+    )
 
     row = await db.get_session_row(result.session_id)
     assert result.template_id == "backend_engineer"
@@ -84,7 +86,9 @@ async def test_start_session_with_workflow_pins_snapshot(monkeypatch) -> None:
 
 async def test_take_turn_uses_pinned_snapshot_after_template_removal(monkeypatch) -> None:
     workflow_id, _, _ = await _active_route(monkeypatch)
-    result = await agent.start_session("ignored_template", workflow_id)
+    result = await agent.start_session(
+        "ignored_template", workflow_id, owner_subject="alice"
+    )
     async with db.connect() as conn:
         await conn.execute(
             "UPDATE sessions SET template_id = 'removed_template' WHERE id = ?",
@@ -102,7 +106,7 @@ async def test_start_session_without_workflow_keeps_legacy_template(monkeypatch)
     monkeypatch.setenv(PRODUCTION_REVISION_ENV, "prod-test-1")
     await db.init_db()
 
-    result = await agent.start_session("backend_engineer")
+    result = await agent.start_session("backend_engineer", owner_subject="alice")
 
     row = await db.get_session_row(result.session_id)
     assert result.template_id == "backend_engineer"
@@ -111,6 +115,28 @@ async def test_start_session_without_workflow_keeps_legacy_template(monkeypatch)
     assert result.workflow_deployment_id is None
     assert row["workflow_id"] is None
     assert row["template_snapshot_json"] is None
+
+
+async def test_foreign_tenant_workflow_is_404_before_status_checks(monkeypatch) -> None:
+    workflow_id, _, _ = await _active_route(monkeypatch)
+    await workflow_store.set_status(workflow_id, status="disabled", actor="alice")
+
+    with pytest.raises(routing.WorkflowRoutingError) as exc:
+        await agent.start_session("ignored", workflow_id, owner_subject="bob")
+
+    assert exc.value.status_code == 404
+    assert exc.value.reason == "workflow_not_owned"
+    async with db.connect() as conn:
+        cursor = await conn.execute(
+            "SELECT actor_subject, tenant_subject, outcome, target_id, details_json "
+            "FROM ai_audit_events WHERE action = 'session.start'"
+        )
+        event = await cursor.fetchone()
+    assert event[0] == "bob"
+    assert event[1] == "bob"
+    assert event[2] == "denied"
+    assert event[3] == str(workflow_id)
+    assert "workflow_not_owned" in event[4]
 
 
 async def test_resolve_active_route_returns_pinned_backend_template(monkeypatch) -> None:

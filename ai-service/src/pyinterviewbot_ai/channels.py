@@ -56,6 +56,9 @@ async def start_or_resume(
     external_id: str,
     template_id: str | None,
     workflow_id: UUID | None = None,
+    *,
+    owner_subject: str,
+    allow_cross_tenant: bool = False,
 ) -> ChannelSessionResponse:
     validate_channel(channel)
     existing = await db.get_channel_session(channel, external_id)
@@ -76,11 +79,17 @@ async def start_or_resume(
             workflow_deployment_id=row["workflow_deployment_id"],
         )
 
-    result = await agent.start_session(template_id, workflow_id)
+    result = await agent.start_session(
+        template_id,
+        workflow_id,
+        owner_subject=owner_subject,
+        allow_cross_tenant=allow_cross_tenant,
+        source=f"channel:{channel}",
+    )
     session_id = result.session_id
     template = result.template_id
     if not await db.bind_channel_session(channel, external_id, session_id):
-        await db.delete_session(session_id)
+        await db.delete_session(session_id, owner_subject=owner_subject)
         existing = await db.get_channel_session(channel, external_id)
         if not existing:
             raise ChannelNotStarted("could not bind channel session")

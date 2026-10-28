@@ -122,12 +122,16 @@ def _fully_promote(
 
 
 def _start_routed_session(
-    client: TestClient, workflow_id: str, *, template_id: str = "rag_architect"
+    client: TestClient,
+    workflow_auth: dict[str, dict[str, str]],
+    workflow_id: str,
+    *,
+    template_id: str = "rag_architect",
 ) -> dict:
     response = client.post(
         "/sessions",
         json={"template_id": template_id, "workflow_id": workflow_id},
-        headers={"X-API-Key": "test-key"},
+        headers=workflow_auth["alice"],
     )
     assert response.status_code == 200, response.text
     return response.json()
@@ -146,7 +150,7 @@ def test_start_session_routes_to_active_workflow(client, workflow_auth) -> None:
     workflow_id = _create_workflow(client, workflow_auth["alice"])
     deployment = _fully_promote(client, workflow_auth, workflow_id)
 
-    body = _start_routed_session(client, workflow_id)
+    body = _start_routed_session(client, workflow_auth, workflow_id)
 
     assert body["template_id"] == "backend_engineer"
     assert body["workflow_id"] == workflow_id
@@ -154,11 +158,26 @@ def test_start_session_routes_to_active_workflow(client, workflow_auth) -> None:
     assert body["workflow_deployment_id"] == deployment["deployment_id"]
 
 
+def test_legacy_key_cannot_create_tenant_session(
+    client, workflow_auth, monkeypatch
+) -> None:
+    monkeypatch.delenv("PYINTERVIEWBOT_PRINCIPALS")
+
+    response = client.post(
+        "/sessions",
+        json={"template_id": "backend_engineer"},
+        headers={"X-API-Key": "test-key"},
+    )
+
+    assert response.status_code == 403
+    assert "PYINTERVIEWBOT_PRINCIPALS" in response.json()["detail"]
+
+
 def test_start_session_unknown_workflow_is_404(client, workflow_auth) -> None:
     response = client.post(
         "/sessions",
         json={"workflow_id": str(uuid4())},
-        headers={"X-API-Key": "test-key"},
+        headers=workflow_auth["alice"],
     )
 
     assert response.status_code == 404
@@ -174,7 +193,7 @@ def test_start_session_stale_binding_is_409(
     response = client.post(
         "/sessions",
         json={"workflow_id": workflow_id},
-        headers={"X-API-Key": "test-key"},
+        headers=workflow_auth["alice"],
     )
 
     assert response.status_code == 409
@@ -189,7 +208,7 @@ def test_start_session_without_active_deployment_is_409(
     response = client.post(
         "/sessions",
         json={"workflow_id": workflow_id},
-        headers={"X-API-Key": "test-key"},
+        headers=workflow_auth["alice"],
     )
 
     assert response.status_code == 409
@@ -208,7 +227,7 @@ def test_start_session_with_disabled_workflow_is_409(
     response = client.post(
         "/sessions",
         json={"workflow_id": workflow_id},
-        headers={"X-API-Key": "test-key"},
+        headers=workflow_auth["alice"],
     )
 
     assert response.status_code == 409
@@ -220,7 +239,7 @@ async def test_pinned_snapshot_drives_report_export_priorities_and_review(
 ) -> None:
     workflow_id = _create_workflow(client, workflow_auth["alice"])
     _fully_promote(client, workflow_auth, workflow_id)
-    session = _start_routed_session(client, workflow_id)
+    session = _start_routed_session(client, workflow_auth, workflow_id)
     session_id = session["session_id"]
     await _replace_template_id(session_id, "removed_template")
     monkeypatch.setattr(
@@ -232,13 +251,13 @@ async def test_pinned_snapshot_drives_report_export_priorities_and_review(
     )
 
     report = client.get(
-        f"/sessions/{session_id}/report", headers={"X-API-Key": "test-key"}
+        f"/sessions/{session_id}/report", headers=workflow_auth["alice"]
     )
     exported = client.get(
-        f"/sessions/{session_id}/report/export", headers={"X-API-Key": "test-key"}
+        f"/sessions/{session_id}/report/export", headers=workflow_auth["alice"]
     )
     priorities = client.get(
-        f"/sessions/{session_id}/priorities", headers={"X-API-Key": "test-key"}
+        f"/sessions/{session_id}/priorities", headers=workflow_auth["alice"]
     )
     review = client.post(
         f"/sessions/{session_id}/review",
@@ -247,7 +266,7 @@ async def test_pinned_snapshot_drives_report_export_priorities_and_review(
             "reviewer": "reviewer",
             "decision": "confirm",
         },
-        headers={"X-API-Key": "test-key"},
+        headers=workflow_auth["alice"],
     )
 
     assert report.status_code == 200, report.text
@@ -270,7 +289,7 @@ def test_channel_session_routes_to_workflow(client, workflow_auth) -> None:
     response = client.post(
         "/channels/web/sessions",
         json={"external_id": "candidate-1", "workflow_id": workflow_id},
-        headers={"X-API-Key": "test-key"},
+        headers=workflow_auth["alice"],
     )
 
     assert response.status_code == 200, response.text
@@ -285,7 +304,7 @@ def test_channel_unknown_workflow_is_404(client, workflow_auth) -> None:
     response = client.post(
         "/channels/web/sessions",
         json={"external_id": "candidate-unknown", "workflow_id": str(uuid4())},
-        headers={"X-API-Key": "test-key"},
+        headers=workflow_auth["alice"],
     )
 
     assert response.status_code == 404
@@ -299,14 +318,14 @@ def test_resuming_channel_session_keeps_original_pin(
     first = client.post(
         "/channels/web/sessions",
         json={"external_id": "candidate-2", "workflow_id": workflow_id},
-        headers={"X-API-Key": "test-key"},
+        headers=workflow_auth["alice"],
     )
     assert first.status_code == 200, first.text
 
     second = client.post(
         "/channels/web/sessions",
         json={"external_id": "candidate-2", "workflow_id": str(uuid4())},
-        headers={"X-API-Key": "test-key"},
+        headers=workflow_auth["alice"],
     )
 
     assert second.status_code == 200, second.text
@@ -321,7 +340,7 @@ async def test_promotion_after_session_creation_does_not_change_pin(
 ) -> None:
     workflow_id = _create_workflow(client, workflow_auth["alice"])
     _fully_promote(client, workflow_auth, workflow_id)
-    session = _start_routed_session(client, workflow_id)
+    session = _start_routed_session(client, workflow_auth, workflow_id)
 
     updated = client.patch(
         f"/workflows/{workflow_id}",
@@ -334,7 +353,7 @@ async def test_promotion_after_session_creation_does_not_change_pin(
     row = await db.get_session_row(session["session_id"])
     report = client.get(
         f"/sessions/{session['session_id']}/report",
-        headers={"X-API-Key": "test-key"},
+        headers=workflow_auth["alice"],
     )
     assert row["workflow_version"] == 1
     assert report.status_code == 200, report.text

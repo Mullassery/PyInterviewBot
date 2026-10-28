@@ -19,10 +19,17 @@ from .workflow_store import WorkflowStateError
 class WorkflowRoutingError(Exception):
     """A session cannot be routed to an active production workflow."""
 
-    def __init__(self, message: str, *, status_code: int = 409) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int = 409,
+        reason: str | None = None,
+    ) -> None:
         """Record the client-facing status for this routing failure."""
         super().__init__(message)
         self.status_code = status_code
+        self.reason = reason
 
 
 @dataclass(frozen=True)
@@ -33,6 +40,7 @@ class WorkflowRoute:
     content_hash: str
     template: InterviewTemplate
     template_snapshot_json: str
+    owner_subject: str
 
 
 def _template_from_snapshot(snapshot: TemplateSnapshot) -> InterviewTemplate:
@@ -53,11 +61,26 @@ def _template_from_snapshot(snapshot: TemplateSnapshot) -> InterviewTemplate:
     )
 
 
-async def resolve_workflow_route(workflow_id: UUID) -> WorkflowRoute:
+async def resolve_workflow_route(
+    workflow_id: UUID,
+    *,
+    tenant_subject: str | None = None,
+    allow_cross_tenant: bool = False,
+) -> WorkflowRoute:
     workflow = await workflow_store.get_workflow(workflow_id)
     if workflow is None:
         raise WorkflowRoutingError(
             f"unknown workflow {workflow_id}", status_code=404
+        )
+    if (
+        tenant_subject is not None
+        and workflow.owner_subject != tenant_subject
+        and not allow_cross_tenant
+    ):
+        raise WorkflowRoutingError(
+            f"unknown workflow {workflow_id}",
+            status_code=404,
+            reason="workflow_not_owned",
         )
     if workflow.status != "active":
         raise WorkflowRoutingError("workflow is not active")
@@ -96,6 +119,7 @@ async def resolve_workflow_route(workflow_id: UUID) -> WorkflowRoute:
         content_hash=version.content_hash,
         template=_template_from_snapshot(snapshot),
         template_snapshot_json=snapshot.model_dump_json(),
+        owner_subject=workflow.owner_subject,
     )
 
 

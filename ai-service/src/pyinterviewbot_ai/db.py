@@ -63,6 +63,10 @@ SESSION_COLUMN_MIGRATIONS = (
         "template_snapshot_json",
         "ALTER TABLE sessions ADD COLUMN template_snapshot_json TEXT",
     ),
+    (
+        "owner_subject",
+        "ALTER TABLE sessions ADD COLUMN owner_subject TEXT",
+    ),
 )
 
 SCHEMA = """
@@ -82,7 +86,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     workflow_version INTEGER,
     workflow_content_hash TEXT,
     workflow_deployment_id TEXT,
-    template_snapshot_json TEXT
+    template_snapshot_json TEXT,
+    owner_subject TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS transcript_segments (
@@ -274,6 +279,7 @@ CREATE TABLE IF NOT EXISTS ai_audit_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     action TEXT NOT NULL,
     actor_subject TEXT NOT NULL,
+    tenant_subject TEXT NOT NULL,
     target_type TEXT NOT NULL,
     target_id TEXT NOT NULL,
     outcome TEXT NOT NULL,
@@ -312,7 +318,56 @@ async def _migrate_single_active_deployment(conn: aiosqlite.Connection) -> None:
     )
 
 
-MIGRATIONS = (("001_single_active_deployment", _migrate_single_active_deployment),)
+def _legacy_owner_subject() -> str:
+    configured = os.environ.get("PYINTERVIEWBOT_LEGACY_SESSION_OWNER") or os.environ.get(
+        "PYINTERVIEWBOT_API_KEY_SUBJECT"
+    )
+    if configured:
+        return configured
+    if os.environ.get("PYINTERVIEWBOT_API_KEY"):
+        return "local-operator"
+    return "local-loopback"
+
+
+async def _migrate_session_tenant(conn: aiosqlite.Connection) -> None:
+    cursor = await conn.execute("PRAGMA table_info(sessions)")
+    columns = {row[1] for row in await cursor.fetchall()}
+    if "owner_subject" not in columns:
+        await conn.execute("ALTER TABLE sessions ADD COLUMN owner_subject TEXT")
+    await conn.execute(
+        "UPDATE sessions SET owner_subject = ("
+        "SELECT owner_subject FROM workflows "
+        "WHERE workflows.id = sessions.workflow_id) "
+        "WHERE (owner_subject IS NULL OR owner_subject = '') "
+        "AND workflow_id IS NOT NULL"
+    )
+    await conn.execute(
+        "UPDATE sessions SET owner_subject = ? "
+        "WHERE owner_subject IS NULL OR owner_subject = ''",
+        (_legacy_owner_subject(),),
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sessions_owner_created "
+        "ON sessions(owner_subject, created_at DESC)"
+    )
+
+    cursor = await conn.execute("PRAGMA table_info(ai_audit_events)")
+    audit_columns = {row[1] for row in await cursor.fetchall()}
+    if "tenant_subject" not in audit_columns:
+        await conn.execute(
+            "ALTER TABLE ai_audit_events ADD COLUMN tenant_subject TEXT NOT NULL "
+            "DEFAULT ''"
+        )
+    await conn.execute(
+        "UPDATE ai_audit_events SET tenant_subject = actor_subject "
+        "WHERE tenant_subject IS NULL OR tenant_subject = ''"
+    )
+
+
+MIGRATIONS = (
+    ("001_single_active_deployment", _migrate_single_active_deployment),
+    ("002_session_tenant", _migrate_session_tenant),
+)
 
 
 async def _run_migrations(conn: aiosqlite.Connection) -> None:
@@ -335,7 +390,6 @@ async def init_db() -> None:
         await db.execute("PRAGMA foreign_keys = ON")
         await db.execute("PRAGMA busy_timeout = 5000")
         await db.executescript(SCHEMA)
-        await _run_migrations(db)
         cursor = await db.execute("PRAGMA table_info(sessions)")
         columns = {row[1] for row in await cursor.fetchall()}
         if "template_id" not in columns:
@@ -350,6 +404,7 @@ async def init_db() -> None:
         for name, statement in SESSION_COLUMN_MIGRATIONS:
             if name not in columns:
                 await db.execute(statement)
+        await _run_migrations(db)
         from .compliance import DEFAULT_CATEGORIES
 
         for category in DEFAULT_CATEGORIES:
@@ -394,6 +449,8 @@ async def create_session(
     workflow_content_hash: str | None = None,
     workflow_deployment_id: str | None = None,
     template_snapshot_json: str | None = None,
+    owner_subject: str,
+    audit_source: str,
 ) -> None:
     async with connect() as db:
         now = datetime.now(UTC)
@@ -402,8 +459,8 @@ async def create_session(
             "(id, created_at, resume_claim, template_id, token_hash, "
             "resume_enabled, resume_window_minutes, resume_deadline, "
             "workflow_id, workflow_version, workflow_content_hash, "
-            "workflow_deployment_id, template_snapshot_json) "
-            "VALUES (?, ?, ?, ?, ?, 1, 1440, ?, ?, ?, ?, ?, ?)",
+            "workflow_deployment_id, template_snapshot_json, owner_subject) "
+            "VALUES (?, ?, ?, ?, ?, 1, 1440, ?, ?, ?, ?, ?, ?, ?)",
             (
                 str(session_id),
                 now.isoformat(),
@@ -416,6 +473,31 @@ async def create_session(
                 workflow_content_hash,
                 workflow_deployment_id,
                 template_snapshot_json,
+                owner_subject,
+            ),
+        )
+        details = {
+            "source": audit_source,
+            "template_id": template_id,
+            "workflow_id": workflow_id,
+            "workflow_version": workflow_version,
+            "workflow_deployment_id": workflow_deployment_id,
+            "workflow_content_hash": workflow_content_hash,
+        }
+        details = {key: value for key, value in details.items() if value is not None}
+        await db.execute(
+            "INSERT INTO ai_audit_events "
+            "(action, actor_subject, tenant_subject, target_type, target_id, "
+            "outcome, details_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "session.start",
+                owner_subject,
+                owner_subject,
+                "session",
+                str(session_id),
+                "success",
+                json.dumps(details, sort_keys=True),
+                _now(),
             ),
         )
         await db.commit()
@@ -475,15 +557,17 @@ async def record_ai_audit(
     target_id: str,
     outcome: str = "success",
     details: dict | None = None,
+    tenant_subject: str | None = None,
 ) -> None:
     async with connect() as db:
         await db.execute(
             "INSERT INTO ai_audit_events "
-            "(action, actor_subject, target_type, target_id, outcome, "
-            "details_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "(action, actor_subject, tenant_subject, target_type, target_id, "
+            "outcome, details_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 action,
                 actor_subject,
+                tenant_subject or actor_subject,
                 target_type,
                 target_id,
                 outcome,
@@ -494,9 +578,21 @@ async def record_ai_audit(
         await db.commit()
 
 
-async def delete_session(session_id: UUID) -> bool:
+async def delete_session(
+    session_id: UUID,
+    *,
+    owner_subject: str | None = None,
+    include_all: bool = False,
+) -> bool:
     """Delete a session and all transcript/evidence rows (retention request)."""
     async with connect() as db:
+        if not include_all:
+            cursor = await db.execute(
+                "SELECT 1 FROM sessions WHERE id = ? AND owner_subject = ?",
+                (str(session_id), owner_subject),
+            )
+            if await cursor.fetchone() is None:
+                return False
         await db.execute(
             "DELETE FROM session_priorities WHERE session_id = ?", (str(session_id),)
         )
@@ -522,13 +618,23 @@ async def delete_session(session_id: UUID) -> bool:
         return cursor.rowcount > 0
 
 
-async def list_sessions() -> list[SessionListItem]:
+async def list_sessions(
+    *,
+    owner_subject: str | None = None,
+    include_all: bool = False,
+) -> list[SessionListItem]:
     async with connect() as db:
         db.row_factory = aiosqlite.Row
-        cursor = await db.execute(
-            "SELECT id, created_at, resume_claim, template_id, is_complete, turn_count "
-            "FROM sessions ORDER BY created_at DESC LIMIT 50"
+        query = (
+            "SELECT id, created_at, resume_claim, template_id, is_complete, "
+            "turn_count FROM sessions"
         )
+        params: tuple[str, ...] = ()
+        if not include_all:
+            query += " WHERE owner_subject = ?"
+            params = (owner_subject,)
+        query += " ORDER BY created_at DESC LIMIT 50"
+        cursor = await db.execute(query, params)
         rows = await cursor.fetchall()
         return [
             SessionListItem(

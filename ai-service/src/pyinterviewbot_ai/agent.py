@@ -173,12 +173,34 @@ async def _load_graph(session_id: UUID, template: InterviewTemplate) -> Evidence
 async def start_session(
     template_id: str | None = None,
     workflow_id: UUID | None = None,
+    *,
+    owner_subject: str,
+    allow_cross_tenant: bool = False,
+    source: str = "api",
 ) -> SessionStartResult:
-    route = (
-        await routing.resolve_workflow_route(workflow_id)
-        if workflow_id is not None
-        else None
-    )
+    route = None
+    if workflow_id is not None:
+        try:
+            route = await routing.resolve_workflow_route(
+                workflow_id,
+                tenant_subject=owner_subject,
+                allow_cross_tenant=allow_cross_tenant,
+            )
+        except routing.WorkflowRoutingError as exc:
+            if exc.reason == "workflow_not_owned":
+                try:
+                    await db.record_ai_audit(
+                        action="session.start",
+                        actor_subject=owner_subject,
+                        tenant_subject=owner_subject,
+                        target_type="workflow",
+                        target_id=str(workflow_id),
+                        outcome="denied",
+                        details={"source": source, "reason": exc.reason},
+                    )
+                except Exception:
+                    logger.exception("failed to audit denied session start")
+            raise
     template = route.template if route is not None else get_template(template_id)
     session_id = uuid4()
     claim = seed_claim(template.competency)
@@ -195,6 +217,8 @@ async def start_session(
         template_snapshot_json=(
             route.template_snapshot_json if route is not None else None
         ),
+        owner_subject=owner_subject,
+        audit_source=source,
     )
     if route is not None:
         logger.info(
