@@ -15,13 +15,17 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import subprocess
+from dataclasses import dataclass
 
 import httpx
 import websockets
 
 GATEWAY_WS = "ws://127.0.0.1:8787/ws/interview"
 AI_SERVICE = "http://127.0.0.1:8000"
+
+logger = logging.getLogger("e2e_ws_test")
 
 ANSWERS = [
     (
@@ -92,18 +96,65 @@ async def stream_audio(ws, pcm16: bytes) -> None:
         await asyncio.sleep(0.02)
 
 
+@dataclass
+class _Scenario:
+    turn_idx: int = 0
+    barge_in_attempted: bool = False
+    got_interrupt: bool = False
+    just_interrupted: bool = False
+    send_task: asyncio.Task | None = None
+
+
+def _handle_control(data: dict, scenario: _Scenario) -> bool:
+    if data["type"] == "error":
+        logger.error("[ERROR] %s", data["message"])
+        return True
+    if data["type"] == "interrupt":
+        scenario.got_interrupt = True
+        scenario.just_interrupted = True
+        logger.info("    <<< interrupt acknowledged by gateway >>>")
+        return True
+    return False
+
+
+async def _send_state_audio(
+    ws,
+    state: str,
+    scenario: _Scenario,
+    answer_audio: list[bytes],
+    filler_audio: bytes,
+    barge_in_audio: bytes,
+) -> None:
+    # Sends run as background tasks so the receive loop keeps reading gateway
+    # messages while a send is in flight, like a real browser client.
+    if state == "ai_speaking" and not scenario.barge_in_attempted:
+        scenario.barge_in_attempted = True
+        await asyncio.sleep(0.3)  # let a little TTS audio actually stream first
+        logger.info("    >>> barging in mid-question...")
+        scenario.send_task = asyncio.create_task(stream_audio(ws, barge_in_audio))
+    elif state == "listening":
+        if scenario.just_interrupted:
+            # This listening state means the barge-in utterance is still in flight.
+            scenario.just_interrupted = False
+            logger.info("    (post-interrupt listening — barge-in utterance in flight)")
+        elif scenario.turn_idx < len(answer_audio):
+            logger.info("    >>> candidate answers (turn %s)...", scenario.turn_idx + 1)
+            scenario.send_task = asyncio.create_task(
+                stream_audio(ws, answer_audio[scenario.turn_idx])
+            )
+            scenario.turn_idx += 1
+        else:
+            scenario.send_task = asyncio.create_task(stream_audio(ws, filler_audio))
+
+
 async def run() -> None:
-    print("Synthesizing candidate audio locally (Piper)...")
+    logger.info("Synthesizing candidate audio locally (Piper)...")
     answer_audio = [await synthesize_16k(a) for a in ANSWERS]
     filler_audio = await synthesize_16k(FILLER_ANSWER)
     barge_in_audio = await synthesize_16k(BARGE_IN_PHRASE)
-    print("Done.\n")
+    logger.info("Done.\n")
 
-    turn_idx = 0
-    barge_in_attempted = False
-    got_interrupt = False
-    just_interrupted = False
-    send_task: asyncio.Task | None = None
+    scenario = _Scenario()
 
     async with websockets.connect(GATEWAY_WS, max_size=None) as ws:
         while True:
@@ -112,64 +163,42 @@ async def run() -> None:
                 continue  # TTS audio chunk — not needed for this test
 
             data = json.loads(msg)
-
-            if data["type"] == "error":
-                print(f"[ERROR] {data['message']}")
-                continue
-            if data["type"] == "interrupt":
-                got_interrupt = True
-                just_interrupted = True
-                print("    <<< interrupt acknowledged by gateway >>>")
+            if _handle_control(data, scenario):
                 continue
 
             state = data["state"]
             text = data.get("text")
             if text:
-                print(f"\n[turn {data['turn']}] AI: {text}")
+                logger.info("\n[turn %s] AI: %s", data["turn"], text)
 
-            # Sends run as background tasks so this loop keeps reading
-            # gateway messages (state changes, interrupts) the whole time a
-            # send is in flight — exactly like a real browser client, where
-            # mic capture and the WS receive handler run concurrently. A
-            # blocking `await stream_audio(...)` here would let several
-            # gateway messages queue up unread and get handled in the wrong
-            # order relative to what this script sends next.
-            if state == "ai_speaking" and not barge_in_attempted:
-                barge_in_attempted = True
-                await asyncio.sleep(0.3)  # let a little TTS audio actually stream first
-                print("    >>> barging in mid-question...")
-                send_task = asyncio.create_task(stream_audio(ws, barge_in_audio))
-
-            elif state == "listening":
-                if just_interrupted:
-                    # This listening state just means "continue the
-                    # utterance you already started" (the barge-in phrase,
-                    # already in flight) — not a fresh turn to answer.
-                    just_interrupted = False
-                    print("    (post-interrupt listening — barge-in utterance in flight)")
-                elif turn_idx < len(answer_audio):
-                    print(f"    >>> candidate answers (turn {turn_idx + 1})...")
-                    send_task = asyncio.create_task(stream_audio(ws, answer_audio[turn_idx]))
-                    turn_idx += 1
-                else:
-                    send_task = asyncio.create_task(stream_audio(ws, filler_audio))
-
-            elif state == "completed":
-                print("\n=== interview completed ===")
-                if send_task is not None and not send_task.done():
-                    send_task.cancel()
+            if state == "completed":
+                logger.info("\n=== interview completed ===")
+                if scenario.send_task is not None and not scenario.send_task.done():
+                    scenario.send_task.cancel()
                 break
 
-    assert got_interrupt, "barge-in was never acknowledged — TTS did not stop on interruption"
-    print("\nBarge-in: OK (TTS stopped immediately on candidate speech)")
-    print(f"Turns answered from canned audio: {turn_idx}/{len(answer_audio)}")
+            await _send_state_audio(
+                ws, state, scenario, answer_audio, filler_audio, barge_in_audio
+            )
+
+    assert scenario.got_interrupt, "barge-in was never acknowledged — TTS did not stop on interruption"
+    logger.info("\nBarge-in: OK (TTS stopped immediately on candidate speech)")
+    logger.info(
+        "Turns answered from canned audio: %s/%s",
+        scenario.turn_idx,
+        len(answer_audio),
+    )
 
 
 async def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     try:
         await asyncio.wait_for(run(), timeout=240)
     except TimeoutError:
-        print("\nTIMED OUT — session never reached 'completed'. Check gateway/ai-service logs.")
+        logger.error(
+            "\nTIMED OUT — session never reached 'completed'. "
+            "Check gateway/ai-service logs."
+        )
         raise SystemExit(1) from None
 
 

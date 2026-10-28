@@ -25,16 +25,27 @@ class ChannelError(Exception):
     status_code = 400
 
 
-class ChannelNotFound(ChannelError):
+class ChannelNotFoundError(ChannelError):
+    """The channel mapping or its interview session no longer exists."""
+
     status_code = 404
 
 
-class ChannelNotStarted(ChannelError):
+class ChannelNotStartedError(ChannelError):
+    """A message arrived before the channel session was started."""
+
     status_code = 409
 
 
-class ChannelComplete(ChannelError):
+class ChannelCompleteError(ChannelError):
+    """The interview behind this channel mapping is already complete."""
+
     status_code = 409
+
+
+ChannelNotFound = ChannelNotFoundError
+ChannelNotStarted = ChannelNotStartedError
+ChannelComplete = ChannelCompleteError
 
 
 def validate_channel(channel: str) -> str:
@@ -69,7 +80,7 @@ async def start_or_resume(
             row["owner_subject"] != owner_subject
             and not allow_cross_tenant
         ):
-            raise ChannelNotFound("channel session points to a deleted interview")
+            raise ChannelNotFoundError("channel session points to a deleted interview")
         return ChannelSessionResponse(
             channel=channel,
             external_id=external_id,
@@ -97,14 +108,14 @@ async def start_or_resume(
         await db.delete_session(session_id, owner_subject=owner_subject)
         existing = await db.get_channel_session(owner_subject, channel, external_id)
         if not existing:
-            raise ChannelNotStarted("could not bind channel session")
+            raise ChannelNotStartedError("could not bind channel session")
         session_id = UUID(existing)
         row = await db.get_session_row(session_id)
         if row is None or (
             row["owner_subject"] != owner_subject
             and not allow_cross_tenant
         ):
-            raise ChannelNotFound("channel session points to a deleted interview")
+            raise ChannelNotFoundError("channel session points to a deleted interview")
     return ChannelSessionResponse(
         channel=channel,
         external_id=external_id,
@@ -139,16 +150,16 @@ async def submit_message(
         owner_subject, channel, external_id
     )
     if not session_id_text:
-        raise ChannelNotStarted("start the channel session before sending messages")
+        raise ChannelNotStartedError("start the channel session before sending messages")
     session_id = UUID(session_id_text)
 
     row = await db.get_session_row(session_id)
     if row is None or (
         row["owner_subject"] != owner_subject and not allow_cross_tenant
     ):
-        raise ChannelNotFound("unknown interview session")
+        raise ChannelNotFoundError("unknown interview session")
     if bool(row["is_complete"]):
-        raise ChannelComplete("interview is already complete")
+        raise ChannelCompleteError("interview is already complete")
 
     turn = await agent.take_turn(session_id, text)
     response = {
@@ -173,9 +184,12 @@ async def submit_message(
 __all__ = [
     "CHANNELS",
     "ChannelComplete",
+    "ChannelCompleteError",
     "ChannelError",
     "ChannelNotFound",
+    "ChannelNotFoundError",
     "ChannelNotStarted",
+    "ChannelNotStartedError",
     "start_or_resume",
     "submit_message",
     "validate_channel",

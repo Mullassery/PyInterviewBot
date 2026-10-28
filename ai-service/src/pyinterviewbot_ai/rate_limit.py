@@ -20,6 +20,7 @@ class SlidingWindowLimiter:
         window_seconds: float = 60.0,
         max_keys: int = 10_000,
     ) -> None:
+        """Initialize the limiter with its window and key bound."""
         self.limit = max(0, limit)
         self.window_seconds = max(1.0, window_seconds)
         self.max_keys = max(1, max_keys)

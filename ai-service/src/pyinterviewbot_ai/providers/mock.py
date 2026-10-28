@@ -24,6 +24,7 @@ MOCK_SAMPLE_RATE = 22_050
 
 class MockSpeechToText:
     def __init__(self, transcripts: list[str] | None = None) -> None:
+        """Initialize the deterministic transcript sequence."""
         configured = os.environ.get("MOCK_ASR_TRANSCRIPTS", "")
         self._transcripts = (
             transcripts

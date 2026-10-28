@@ -26,6 +26,7 @@ class ProviderError(RuntimeError):
         retryable: bool = False,
         status_code: int | None = None,
     ) -> None:
+        """Record the provider, message, and retry metadata."""
         super().__init__(f"{provider}: {message}")
         self.provider = provider
         self.message = message

@@ -89,6 +89,7 @@ class OpenRouterLanguageModel:
         response_format: str | None = None,
         client: httpx.AsyncClient | None = None,
     ) -> None:
+        """Configure the OpenRouter language-model client."""
         self.api_key = api_key or os.environ.get("OPENROUTER_API_KEY")
         self.model = model or os.environ.get("OPENROUTER_MODEL")
         if not self.api_key:
@@ -256,6 +257,7 @@ class OpenRouterSpeechToText:
         timeout: float | None = None,
         client: httpx.AsyncClient | None = None,
     ) -> None:
+        """Configure the OpenRouter speech-to-text client."""
         self.api_key = api_key or os.environ.get("OPENROUTER_API_KEY")
         self.model = model or os.environ.get("OPENROUTER_STT_MODEL")
         if not self.api_key:
@@ -357,6 +359,7 @@ class OpenRouterTextToSpeech:
         source_sample_rate: int | None = None,
         client: httpx.AsyncClient | None = None,
     ) -> None:
+        """Configure the OpenRouter text-to-speech client."""
         self.api_key = api_key or os.environ.get("OPENROUTER_API_KEY")
         self.model = model or os.environ.get("OPENROUTER_TTS_MODEL")
         if not self.api_key:
