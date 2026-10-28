@@ -81,7 +81,9 @@ def _require_role(principal: Principal, role: str) -> None:
 
 def _require_owner(record: store.WorkflowRecord, principal: Principal) -> None:
     if record.owner_subject != principal.subject and not principal.has_role("admin"):
-        raise HTTPException(status_code=403, detail="workflow is owned by another user")
+        raise HTTPException(
+            status_code=404, detail=f"unknown workflow {record.workflow_id}"
+        )
 
 
 def _workflow_view(record: store.WorkflowRecord) -> dict:
@@ -219,8 +221,8 @@ async def update_workflow(
     update: WorkflowUpdateRequest,
     principal: PrincipalDep,
 ) -> dict:
-    _require_role(principal, "author")
     record = await _owned_workflow(workflow_id, principal)
+    _require_role(principal, "author")
     changes = update.model_dump(exclude_unset=True)
     if "name" in changes and changes["name"] is not None:
         changes["name"] = changes["name"].strip()
@@ -248,8 +250,8 @@ async def publish_version(
     principal: PrincipalDep,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> dict:
-    _require_role(principal, "author")
     await _owned_workflow(workflow_id, principal)
+    _require_role(principal, "author")
     try:
         record = await store.publish_version(
             workflow_id, actor=principal.subject, idempotency_key=idempotency_key
@@ -287,8 +289,8 @@ async def deploy_sandbox(
     principal: PrincipalDep,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> dict:
-    _require_role(principal, "author")
     await _owned_workflow(workflow_id, principal)
+    _require_role(principal, "author")
     try:
         record = await lifecycle.deploy_sandbox(
             workflow_id,
@@ -309,8 +311,8 @@ async def run_tests(
     principal: PrincipalDep,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> dict:
-    _require_role(principal, "author")
     await _owned_workflow(workflow_id, principal)
+    _require_role(principal, "author")
     try:
         record = await lifecycle.run_tests(
             workflow_id,
@@ -343,8 +345,8 @@ async def request_approval(
     principal: PrincipalDep,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> dict:
-    _require_role(principal, "author")
     await _owned_workflow(workflow_id, principal)
+    _require_role(principal, "author")
     try:
         record = await lifecycle.request_approval(
             workflow_id,
@@ -421,8 +423,8 @@ async def deploy_production(
     principal: PrincipalDep,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> dict:
-    _require_role(principal, "deployer")
     await _owned_workflow(workflow_id, principal)
+    _require_role(principal, "deployer")
     try:
         record = await lifecycle.deploy_production(
             workflow_id,
@@ -444,8 +446,8 @@ async def rollback(
     principal: PrincipalDep,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> dict:
-    _require_role(principal, "deployer")
     await _owned_workflow(workflow_id, principal)
+    _require_role(principal, "deployer")
     try:
         record = await lifecycle.rollback_production(
             workflow_id,

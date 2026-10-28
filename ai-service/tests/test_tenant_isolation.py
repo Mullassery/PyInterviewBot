@@ -126,6 +126,30 @@ def test_valid_session_token_does_not_override_tenant(
     assert response.status_code == 404
 
 
+def test_foreign_tenant_gets_404_on_workflow_routes(
+    client: TestClient, tenant_auth
+) -> None:
+    created = client.post(
+        "/workflows",
+        json={"name": "Alice workflow", "template_id": "backend_engineer"},
+        headers=tenant_auth["alice"],
+    )
+    assert created.status_code == 200, created.text
+    workflow_id = created.json()["workflow_id"]
+
+    for method, path, payload in [
+        ("GET", f"/workflows/{workflow_id}", None),
+        ("PATCH", f"/workflows/{workflow_id}", {"name": "stolen"}),
+        ("GET", f"/workflows/{workflow_id}/audit", None),
+        ("GET", f"/workflows/{workflow_id}/deployments", None),
+        ("POST", f"/workflows/{workflow_id}/disable", None),
+    ]:
+        response = client.request(
+            method, path, json=payload, headers=tenant_auth["bob"]
+        )
+        assert response.status_code == 404, (method, path, response.text)
+
+
 def test_legacy_key_cannot_read_tenant_sessions(
     client: TestClient, tenant_auth, monkeypatch
 ) -> None:

@@ -508,7 +508,29 @@ def test_workflows_are_owned_and_approver_cannot_decide_for_someone_else(
     workflow = _create(client, alice, name="Alice workflow")
     workflow_id = workflow["workflow_id"]
 
-    assert client.get(f"/workflows/{workflow_id}", headers=bob).status_code == 403
+    bob_headers = bob
+    for method, path, payload in [
+        ("GET", f"/workflows/{workflow_id}", None),
+        ("PATCH", f"/workflows/{workflow_id}", {"name": "x"}),
+        ("GET", f"/workflows/{workflow_id}/versions", None),
+        ("POST", f"/workflows/{workflow_id}/versions", None),
+        ("GET", f"/workflows/{workflow_id}/audit", None),
+        ("GET", f"/workflows/{workflow_id}/deployments", None),
+        ("POST", f"/workflows/{workflow_id}/disable", None),
+        (
+            "POST",
+            f"/workflows/{workflow_id}/rollback",
+            {"deployment_id": "deployment-1"},
+        ),
+    ]:
+        response = client.request(
+            method,
+            path,
+            json=payload,
+            headers={**bob_headers, "Idempotency-Key": "foreign"},
+        )
+        assert response.status_code == 404, (method, path, response.text)
+
     assert client.get("/workflows", headers=bob).json() == []
     assert client.post(
         "/workflows",
