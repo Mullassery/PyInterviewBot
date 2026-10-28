@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 pytest.importorskip("fastapi")
 
-from pyinterviewbot_ai.auth import Principal, require_auth
+from pyinterviewbot_ai.auth import Principal, require_auth, require_tenant_auth
 
 app = FastAPI()
 
@@ -25,11 +25,17 @@ def protected():
     return {"ok": True}
 
 
+@app.get("/tenant")
+def tenant(principal: Annotated[Principal, Depends(require_tenant_auth)]):
+    return {"subject": principal.subject, "source": principal.source}
+
+
 @app.get("/whoami")
 def whoami(principal: Annotated[Principal, Depends(require_auth)]):
     return {
         "subject": principal.subject,
         "roles": sorted(principal.roles),
+        "source": principal.source,
     }
 
 
@@ -63,12 +69,13 @@ def test_bearer_key_is_accepted(monkeypatch):
 
 def test_legacy_api_key_gets_operator_identity(monkeypatch):
     monkeypatch.setenv("PYINTERVIEWBOT_API_KEY", "secret")
-    body = TestClient(app).get(
-        "/whoami", headers={"X-API-Key": "secret"}
-    ).json()
+    monkeypatch.delenv("PYINTERVIEWBOT_PRINCIPALS", raising=False)
+    client = TestClient(app)
+    body = client.get("/whoami", headers={"X-API-Key": "secret"}).json()
     assert body == {
         "subject": "local-operator",
         "roles": ["approver", "author", "deployer", "owner"],
+        "source": "legacy",
     }
 
 
@@ -78,10 +85,36 @@ def test_principal_map_assigns_subject_and_roles(monkeypatch):
         "PYINTERVIEWBOT_PRINCIPALS",
         '{"alice-key": {"subject": "alice", "roles": ["owner", "author"]}}',
     )
-    body = TestClient(app).get(
-        "/whoami", headers={"X-API-Key": "alice-key"}
-    ).json()
-    assert body == {"subject": "alice", "roles": ["author", "owner"]}
+    client = TestClient(app)
+    body = client.get("/whoami", headers={"X-API-Key": "alice-key"}).json()
+    assert body == {
+        "subject": "alice",
+        "roles": ["author", "owner"],
+        "source": "principal",
+    }
+    assert (
+        client.get("/tenant", headers={"X-API-Key": "alice-key"}).status_code
+        == 200
+    )
+
+
+def test_legacy_key_is_not_a_tenant(monkeypatch):
+    monkeypatch.setenv("PYINTERVIEWBOT_API_KEY", "secret")
+    monkeypatch.delenv("PYINTERVIEWBOT_PRINCIPALS", raising=False)
+    response = TestClient(app).get("/tenant", headers={"X-API-Key": "secret"})
+    assert response.status_code == 403
+    assert "PYINTERVIEWBOT_PRINCIPALS" in response.json()["detail"]
+
+
+def test_principal_key_is_a_tenant(monkeypatch):
+    monkeypatch.setenv("PYINTERVIEWBOT_API_KEY", "secret")
+    monkeypatch.setenv(
+        "PYINTERVIEWBOT_PRINCIPALS",
+        '{"alice-key": {"subject": "alice", "roles": ["author"]}}',
+    )
+    response = TestClient(app).get("/tenant", headers={"X-API-Key": "alice-key"})
+    assert response.status_code == 200
+    assert response.json()["subject"] == "alice"
 
 
 async def test_loopback_without_configured_key_gets_loopback_identity(monkeypatch):
@@ -101,6 +134,7 @@ async def test_loopback_without_configured_key_gets_loopback_identity(monkeypatc
     principal = await require_auth(request)
     assert principal.subject == "local-loopback"
     assert principal.roles == frozenset({"owner", "author", "approver", "deployer"})
+    assert principal.source == "loopback"
 
 
 def test_unknown_principal_is_rejected(monkeypatch):

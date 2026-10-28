@@ -15,8 +15,9 @@ import json
 import logging
 import os
 from dataclasses import dataclass
+from typing import Annotated
 
-from fastapi import Header, HTTPException, Request
+from fastapi import Depends, Header, HTTPException, Request
 
 API_KEY_ENV = "PYINTERVIEWBOT_API_KEY"
 PRINCIPALS_ENV = "PYINTERVIEWBOT_PRINCIPALS"
@@ -28,6 +29,7 @@ logger = logging.getLogger(__name__)
 class Principal:
     subject: str
     roles: frozenset[str] = DEFAULT_ROLES
+    source: str = "principal"
 
     def has_role(self, role: str) -> bool:
         return role in self.roles or "admin" in self.roles
@@ -69,6 +71,7 @@ def _configured_principals() -> dict[str, Principal]:
         principals[key] = Principal(
             subject=subject,
             roles=frozenset(role for role in roles if isinstance(role, str) and role),
+            source="principal",
         )
     return principals
 
@@ -86,7 +89,7 @@ def _match_principal(supplied: str) -> Principal | None:
             if raw_roles
             else DEFAULT_ROLES
         )
-        return Principal(subject=subject, roles=roles)
+        return Principal(subject=subject, roles=roles, source="legacy")
     return None
 
 
@@ -115,7 +118,21 @@ async def require_auth(
                 f"{API_KEY_ENV} and send X-API-Key"
             ),
         )
-    return Principal(subject="local-loopback", roles=DEFAULT_ROLES)
+    return Principal(subject="local-loopback", roles=DEFAULT_ROLES, source="loopback")
+
+
+async def require_tenant_auth(
+    principal: Annotated[Principal, Depends(require_auth)],
+) -> Principal:
+    if principal.source == "legacy":
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "tenant identity required; configure "
+                "PYINTERVIEWBOT_PRINCIPALS and use a principal key"
+            ),
+        )
+    return principal
 
 
 def hash_session_token(token: str) -> str:
@@ -145,6 +162,7 @@ __all__ = [
     "Principal",
     "hash_session_token",
     "require_auth",
+    "require_tenant_auth",
     "session_token_matches",
     "session_token_required",
 ]
