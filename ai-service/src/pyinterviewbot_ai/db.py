@@ -130,12 +130,14 @@ CREATE TABLE IF NOT EXISTS channel_events (
 );
 
 CREATE TABLE IF NOT EXISTS compliance_policy (
-    category TEXT PRIMARY KEY,
+    tenant_subject TEXT NOT NULL,
+    category TEXT NOT NULL,
     label TEXT NOT NULL,
     description TEXT NOT NULL,
     enabled INTEGER NOT NULL DEFAULT 1,
     patterns_json TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (tenant_subject, category)
 );
 
 CREATE TABLE IF NOT EXISTS session_priorities (
@@ -411,10 +413,42 @@ async def _migrate_channel_tenant(conn: aiosqlite.Connection) -> None:
     await conn.execute("ALTER TABLE channel_events_new RENAME TO channel_events")
 
 
+async def _migrate_compliance_tenant(conn: aiosqlite.Connection) -> None:
+    cursor = await conn.execute("PRAGMA table_info(compliance_policy)")
+    columns = {row[1] for row in await cursor.fetchall()}
+    if "tenant_subject" in columns:
+        return
+    await conn.execute(
+        "CREATE TABLE compliance_policy_new ("
+        "tenant_subject TEXT NOT NULL, category TEXT NOT NULL, "
+        "label TEXT NOT NULL, description TEXT NOT NULL, "
+        "enabled INTEGER NOT NULL DEFAULT 1, patterns_json TEXT NOT NULL, "
+        "updated_at TEXT NOT NULL, PRIMARY KEY (tenant_subject, category))"
+    )
+    await conn.execute(
+        "INSERT OR IGNORE INTO compliance_policy_new "
+        "(tenant_subject, category, label, description, enabled, "
+        "patterns_json, updated_at) "
+        "WITH owners(owner_subject) AS ("
+        "SELECT ? UNION SELECT owner_subject FROM sessions "
+        "WHERE owner_subject IS NOT NULL AND owner_subject != '') "
+        "SELECT owners.owner_subject, policy.category, policy.label, "
+        "policy.description, policy.enabled, policy.patterns_json, "
+        "policy.updated_at "
+        "FROM compliance_policy AS policy CROSS JOIN owners",
+        (_legacy_owner_subject(),),
+    )
+    await conn.execute("DROP TABLE compliance_policy")
+    await conn.execute(
+        "ALTER TABLE compliance_policy_new RENAME TO compliance_policy"
+    )
+
+
 MIGRATIONS = (
     ("001_single_active_deployment", _migrate_single_active_deployment),
     ("002_session_tenant", _migrate_session_tenant),
     ("003_channel_tenant", _migrate_channel_tenant),
+    ("004_compliance_tenant", _migrate_compliance_tenant),
 )
 
 
@@ -453,21 +487,6 @@ async def init_db() -> None:
             if name not in columns:
                 await db.execute(statement)
         await _run_migrations(db)
-        from .compliance import DEFAULT_CATEGORIES
-
-        for category in DEFAULT_CATEGORIES:
-            await db.execute(
-                "INSERT OR IGNORE INTO compliance_policy "
-                "(category, label, description, enabled, patterns_json, updated_at) "
-                "VALUES (?, ?, ?, 1, ?, ?)",
-                (
-                    category.id,
-                    category.label,
-                    category.description,
-                    json.dumps(list(category.patterns)),
-                    _now(),
-                ),
-            )
         await db.commit()
 
 
@@ -884,12 +903,41 @@ async def get_session_priorities(session_id: UUID) -> list[PrioritySetting]:
         ]
 
 
-async def list_compliance_categories() -> list[dict]:
+async def _seed_default_compliance(
+    db: aiosqlite.Connection, tenant_subject: str
+) -> None:
+    from .compliance import DEFAULT_CATEGORIES
+
+    for category in DEFAULT_CATEGORIES:
+        await db.execute(
+            "INSERT OR IGNORE INTO compliance_policy "
+            "(tenant_subject, category, label, description, enabled, "
+            "patterns_json, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?)",
+            (
+                tenant_subject,
+                category.id,
+                category.label,
+                category.description,
+                json.dumps(list(category.patterns)),
+                _now(),
+            ),
+        )
+
+
+async def list_compliance_categories(tenant_subject: str) -> list[dict]:
     async with connect() as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
+            "SELECT 1 FROM compliance_policy WHERE tenant_subject = ? LIMIT 1",
+            (tenant_subject,),
+        )
+        if await cursor.fetchone() is None:
+            await _seed_default_compliance(db, tenant_subject)
+            await db.commit()
+        cursor = await db.execute(
             "SELECT category, label, description, enabled, patterns_json, updated_at "
-            "FROM compliance_policy ORDER BY category ASC"
+            "FROM compliance_policy WHERE tenant_subject = ? ORDER BY category ASC",
+            (tenant_subject,),
         )
         rows = await cursor.fetchall()
         return [
@@ -906,6 +954,7 @@ async def list_compliance_categories() -> list[dict]:
 
 
 async def update_compliance_category(
+    tenant_subject: str,
     category: str,
     *,
     label: str | None = None,
@@ -922,13 +971,14 @@ async def update_compliance_category(
             "description = COALESCE(?, description), "
             "enabled = COALESCE(?, enabled), "
             "patterns_json = COALESCE(?, patterns_json), "
-            "updated_at = ? WHERE category = ?",
+            "updated_at = ? WHERE tenant_subject = ? AND category = ?",
             (
                 label,
                 description,
                 None if enabled is None else int(enabled),
                 None if patterns is None else json.dumps(patterns),
                 _now(),
+                tenant_subject,
                 category,
             ),
         )
@@ -936,24 +986,13 @@ async def update_compliance_category(
         return cursor.rowcount > 0
 
 
-async def reset_compliance_policy() -> None:
-    from .compliance import DEFAULT_CATEGORIES
-
+async def reset_compliance_policy(tenant_subject: str) -> None:
     async with connect() as db:
-        await db.execute("DELETE FROM compliance_policy")
-        for category in DEFAULT_CATEGORIES:
-            await db.execute(
-                "INSERT INTO compliance_policy "
-                "(category, label, description, enabled, patterns_json, updated_at) "
-                "VALUES (?, ?, ?, 1, ?, ?)",
-                (
-                    category.id,
-                    category.label,
-                    category.description,
-                    json.dumps(list(category.patterns)),
-                    _now(),
-                ),
-            )
+        await db.execute(
+            "DELETE FROM compliance_policy WHERE tenant_subject = ?",
+            (tenant_subject,),
+        )
+        await _seed_default_compliance(db, tenant_subject)
         await db.commit()
 
 

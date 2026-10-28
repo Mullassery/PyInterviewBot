@@ -415,24 +415,27 @@ async def resume_interview(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
-@app.get(
-    "/compliance/policy",
-    response_model=CompliancePolicyResponse,
-    dependencies=[Depends(require_auth)],
-)
-async def get_compliance_policy() -> CompliancePolicyResponse:
-    return _compliance_response(await db.list_compliance_categories())
+@app.get("/compliance/policy", response_model=CompliancePolicyResponse)
+async def get_compliance_policy(
+    principal: Annotated[Principal, Depends(require_tenant_auth)],
+) -> CompliancePolicyResponse:
+    rows = await db.list_compliance_categories(principal.subject)
+    return _compliance_response(rows)
 
 
 @app.put(
     "/compliance/policy/{category}",
     response_model=CompliancePolicyResponse,
-    dependencies=[Depends(require_auth)],
 )
 async def update_compliance_policy(
-    category: str, req: ComplianceCategoryUpdate
+    category: str,
+    req: ComplianceCategoryUpdate,
+    principal: Annotated[Principal, Depends(require_tenant_auth)],
 ) -> CompliancePolicyResponse:
-    existing = {row["category"] for row in await db.list_compliance_categories()}
+    existing = {
+        row["category"]
+        for row in await db.list_compliance_categories(principal.subject)
+    }
     if category not in existing:
         raise HTTPException(status_code=404, detail=f"unknown compliance category {category}")
     patterns = req.patterns
@@ -451,6 +454,7 @@ async def update_compliance_policy(
                 ) from exc
         patterns = cleaned
     updated = await db.update_compliance_category(
+        principal.subject,
         category,
         label=req.label,
         description=req.description,
@@ -459,17 +463,17 @@ async def update_compliance_policy(
     )
     if not updated:
         raise HTTPException(status_code=404, detail=f"unknown compliance category {category}")
-    return _compliance_response(await db.list_compliance_categories())
+    rows = await db.list_compliance_categories(principal.subject)
+    return _compliance_response(rows)
 
 
-@app.post(
-    "/compliance/policy/reset",
-    response_model=CompliancePolicyResponse,
-    dependencies=[Depends(require_auth)],
-)
-async def reset_compliance_policy() -> CompliancePolicyResponse:
-    await db.reset_compliance_policy()
-    return _compliance_response(await db.list_compliance_categories())
+@app.post("/compliance/policy/reset", response_model=CompliancePolicyResponse)
+async def reset_compliance_policy(
+    principal: Annotated[Principal, Depends(require_tenant_auth)],
+) -> CompliancePolicyResponse:
+    await db.reset_compliance_policy(principal.subject)
+    rows = await db.list_compliance_categories(principal.subject)
+    return _compliance_response(rows)
 
 
 @app.get("/sessions/{session_id}/priorities", response_model=PrioritiesResponse)

@@ -239,7 +239,11 @@ async def start_session(
     )
 
     opening = _safe_question(
-        decision.question_text, template, [], False, await load_policy()
+        decision.question_text,
+        template,
+        [],
+        False,
+        await load_policy(owner_subject),
     )
     await db.append_transcript(session_id, 0, "ai", opening)
     await db.set_turn_count(session_id, 0)
@@ -312,7 +316,11 @@ async def take_turn(session_id: UUID, transcript: str) -> TurnResponse:
         )
 
     ai_text = _safe_question(
-        ai_text, template, history, is_complete, await load_policy()
+        ai_text,
+        template,
+        history,
+        is_complete,
+        await load_policy(row["owner_subject"]),
     )
     await db.append_transcript(session_id, turn_number, "ai", ai_text)
     await db.set_turn_count(session_id, turn_number)

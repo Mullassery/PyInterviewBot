@@ -212,6 +212,48 @@ async def test_init_db_backfills_channel_owner_from_session(tmp_path, monkeypatc
     assert events == [("alice", "web", "event-1"), ("bob", "web", "event-2")]
 
 
+async def test_init_db_copies_global_compliance_to_known_tenants(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "legacy-compliance.db"))
+    monkeypatch.setenv("PYINTERVIEWBOT_LEGACY_SESSION_OWNER", "legacy-owner")
+    await db.init_db()
+    for owner in ("alice", "bob"):
+        await db.create_session(
+            uuid4(),
+            ResumeClaim(competency="x", text="x"),
+            owner_subject=owner,
+            audit_source="test",
+        )
+    async with aiosqlite.connect(db.DB_PATH) as conn:
+        await conn.execute("DROP TABLE compliance_policy")
+        await conn.execute(
+            "CREATE TABLE compliance_policy (category TEXT PRIMARY KEY, "
+            "label TEXT NOT NULL, description TEXT NOT NULL, "
+            "enabled INTEGER NOT NULL DEFAULT 1, patterns_json TEXT NOT NULL, "
+            "updated_at TEXT NOT NULL)"
+        )
+        await conn.execute(
+            "INSERT INTO compliance_policy VALUES "
+            "('age', 'Age', 'Age', 0, '[]', 'now')"
+        )
+        await conn.execute(
+            "DELETE FROM schema_migrations WHERE name = '004_compliance_tenant'"
+        )
+        await conn.commit()
+
+    await db.init_db()
+    await db.init_db()
+
+    async with aiosqlite.connect(db.DB_PATH) as conn:
+        cursor = await conn.execute(
+            "SELECT tenant_subject, enabled FROM compliance_policy "
+            "WHERE category = 'age' ORDER BY tenant_subject"
+        )
+        rows = await cursor.fetchall()
+    assert rows == [("alice", 0), ("bob", 0), ("legacy-owner", 0)]
+
+
 async def test_create_session_rolls_back_when_audit_insert_fails() -> None:
     session_id = uuid4()
     await db.init_db()

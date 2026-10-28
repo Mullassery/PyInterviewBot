@@ -251,10 +251,10 @@ def policy_from_rows(rows: Iterable[dict]) -> CompliancePolicy:
     return CompliancePolicy(categories)
 
 
-async def load_policy() -> CompliancePolicy:
+async def load_policy(tenant_subject: str) -> CompliancePolicy:
     from . import db
 
-    rows = await db.list_compliance_categories()
+    rows = await db.list_compliance_categories(tenant_subject)
     return policy_from_rows(rows) if rows else default_policy()
 
 
