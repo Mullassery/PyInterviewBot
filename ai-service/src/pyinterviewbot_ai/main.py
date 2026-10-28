@@ -22,6 +22,7 @@ from . import (
     reporting,
     resume_policy,
     templates,
+    workflow_routing,
 )
 from .auth import Principal, hash_session_token, require_auth
 from .models import (
@@ -143,7 +144,9 @@ async def health() -> dict[str, str]:
 )
 async def create_session(req: StartSessionRequest) -> StartSessionResponse:
     try:
-        result = await agent.start_session(req.template_id)
+        result = await agent.start_session(req.template_id, req.workflow_id)
+    except workflow_routing.WorkflowRoutingError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return StartSessionResponse(
@@ -151,6 +154,9 @@ async def create_session(req: StartSessionRequest) -> StartSessionResponse:
         question_text=result.question_text,
         template_id=result.template_id,
         session_token=result.session_token,
+        workflow_id=result.workflow_id,
+        workflow_version=result.workflow_version,
+        workflow_deployment_id=result.workflow_deployment_id,
     )
 
 
@@ -267,7 +273,7 @@ async def session_report(session_id: UUID) -> SessionReport:
     if row is None:
         raise HTTPException(status_code=404, detail=f"unknown session {session_id}")
     try:
-        template = templates.get_template(row["template_id"])
+        template = workflow_routing.session_template(row)
     except ValueError:
         template = templates.get_template()
     return report.build_report(
@@ -297,7 +303,7 @@ async def export_report(
     if row is None:
         raise HTTPException(status_code=404, detail=f"unknown session {session_id}")
     try:
-        template = templates.get_template(row["template_id"])
+        template = workflow_routing.session_template(row)
     except ValueError:
         template = templates.get_template()
     transcript = await db.get_transcript(session_id)
@@ -463,7 +469,7 @@ async def get_priorities(session_id: UUID) -> PrioritiesResponse:
     row = await db.get_session_row(session_id)
     if row is None:
         raise HTTPException(status_code=404, detail=f"unknown session {session_id}")
-    template = templates.get_template(row["template_id"])
+    template = workflow_routing.session_template(row)
     stored = {item.node: item for item in await db.get_session_priorities(session_id)}
     priorities = [
         stored.get(node.id)
@@ -484,7 +490,7 @@ async def set_priorities(
     row = await db.get_session_row(session_id)
     if row is None:
         raise HTTPException(status_code=404, detail=f"unknown session {session_id}")
-    template = templates.get_template(row["template_id"])
+    template = workflow_routing.session_template(row)
     valid_nodes = {node.id for node in template.nodes}
     seen: set[str] = set()
     cleaned: list[PrioritySetting] = []
@@ -514,7 +520,7 @@ async def review_evidence(
     row = await db.get_session_row(session_id)
     if row is None:
         raise HTTPException(status_code=404, detail=f"unknown session {session_id}")
-    template = templates.get_template(row["template_id"])
+    template = workflow_routing.session_template(row)
     if req.node not in {node.id for node in template.nodes}:
         raise HTTPException(status_code=400, detail=f"unknown evidence node {req.node}")
     await db.record_review(

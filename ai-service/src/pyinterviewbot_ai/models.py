@@ -27,6 +27,7 @@ NextAction = Literal["probe", "clarify", "challenge", "move_on", "simulate", "co
 class StartSessionRequest(BaseModel):
     resume_seed: bool = True
     template_id: str | None = None
+    workflow_id: UUID | None = None
 
 
 class StartSessionResponse(BaseModel):
@@ -34,6 +35,9 @@ class StartSessionResponse(BaseModel):
     question_text: str
     template_id: str = "rag_architect"
     session_token: str | None = None
+    workflow_id: UUID | None = None
+    workflow_version: int | None = None
+    workflow_deployment_id: str | None = None
 
 
 class TurnRequest(BaseModel):
