@@ -1,6 +1,6 @@
 # Security and privacy model — current state
 
-Last reviewed: 2026-10-26. This complements `SECURITY.md` (reporting and known
+Last reviewed: 2026-10-28. This complements `SECURITY.md` (reporting and known
 gaps) and `docs/CAPABILITY_MATRIX.md` (provider/licence boundaries). Workflow
 artifact identity and promotion controls are detailed in
 [`docs/WORKFLOWS.md`](WORKFLOWS.md).
@@ -21,11 +21,14 @@ artifact identity and promotion controls are detailed in
 1. **Candidate browser → Rust gateway**: untrusted WebSocket input, including
    malformed/oversized binary frames and reconnects.
 2. **Gateway → ai-service**: authenticated HTTP; the gateway may only send
-   normalized operation fields.
+   normalized operation fields. The gateway forwards one ai-service key, whose
+   principal subject must match the workflow owner, so one gateway process
+   serves one tenant.
 3. **ai-service → model/provider**: local model processes or optional HTTP
    services. Transcripts/model outputs are untrusted input to evaluation.
 4. **Recruiter client → ai-service**: privileged transcript/evidence/report
-   access.
+   access, scoped by the tenant principal key entered at runtime and kept in
+   `sessionStorage`.
 5. **Workflow author/approver/deployer → ai-service**: privileged artifact and
    production-control access; workflow roles and ownership are enforced
    independently of gateway transport auth.
@@ -37,7 +40,9 @@ artifact identity and promotion controls are detailed in
 | Risk | Control |
 |---|---|
 | Unauthenticated API access | API key (`X-API-Key` or Bearer) or loopback-only fail-closed; `/health` exempt |
-| Session-turn access | Per-session token returned at creation, hash stored at rest, forwarded by the gateway; optional enforcement |
+| Session-turn access | Per-session token returned at creation, hash stored at rest, forwarded by the gateway; optional enforcement; never replaces tenant matching |
+| Tenant isolation | `PYINTERVIEWBOT_PRINCIPALS` subject owns sessions, channel mappings, compliance policy, and audit; cross-tenant IDs return `404`; legacy key is rejected on tenant routes |
+| Legacy data migration | Routed sessions inherit workflow ownership; remaining sessions and channel mappings use `PYINTERVIEWBOT_LEGACY_SESSION_OWNER` / `PYINTERVIEWBOT_API_KEY_SUBJECT` / loopback fallback |
 | Request flooding | In-process sliding-window limiter per API key/IP; `/health` exempt |
 | Gateway-to-ai auth break | Gateway forwards `AI_SERVICE_API_KEY`/`PYINTERVIEWBOT_API_KEY`; tested |
 | Oversized audio / memory growth | Per-turn byte cap, WebSocket frame/message cap, `/asr/transcribe` 413 limit |
@@ -65,18 +70,21 @@ artifact identity and promotion controls are detailed in
 ## Open risks
 
 - No TLS/WSS termination in this repo. Run behind a trusted reverse proxy.
-- Interview/session routes still accept one global API key; session tokens
-  protect `/turn` when enforcement is on, but any global-key holder can still
-  read any session UUID. There is no tenant isolation or scoped recruiter key.
-  Do not expose the recruiter API across trust boundaries yet. Workflow routes
-  use the newer principals/roles map, but it does not isolate non-workflow data.
+- Tenant identities are bearer keys in a process-wide JSON map. There is no
+  per-user login, key rotation API, revocation feed, or scoped recruiter
+  credential beyond choosing a principal key. Any holder of a tenant's key has
+  that tenant's full access; `admin` holders can cross tenants by design.
 - Live workflow routing is opt-in per session. A supplied `workflow_id` is
-  resolved against an active production deployment and pinned on the session;
-  an omitted ID leaves the legacy template path unchanged. Shared API-key
-  access means any key holder can select any active production workflow by
-  UUID, so workflow selection does not provide tenant isolation.
-- Workflow audit covers lifecycle mutations, not reads, and relies on SQLite
-  file permissions and backups for tamper resistance.
+  resolved against an active production deployment and pinned only when the
+  workflow owner matches the tenant (or the caller is `admin`); an omitted ID
+  leaves the legacy template path unchanged. The gateway must run with the
+  workflow owner's principal key and one process per tenant.
+- Workflow and AI audit cover lifecycle mutations and session starts, not
+  reads or turns, and rely on SQLite file permissions and backups for tamper
+  resistance. Automated audit retention and an operator audit UI are pending.
+- Migration ownership is deterministic, not interactive. Old sessions and
+  channel mappings assigned to the fallback owner cannot be recovered by another
+  tenant without an operator data correction.
 - Rate limiting is per-process only. Add a shared proxy/gateway limit and
   quotas before network deployment.
 - The interview WebSocket flow does not record audio. The native studio has an
@@ -105,10 +113,11 @@ artifact identity and promotion controls are detailed in
 ## Required before remote deployment
 
 1. TLS/WSS termination and strict network policy.
-2. Session-scoped authorization (or per-tenant isolation) for transcript,
-   evidence, report, review, and delete operations.
+2. Principal key lifecycle: issuance, rotation, revocation, and per-tenant
+   credential management for recruiter/gateway deployments.
 3. Rate limits, request quotas, audit retention, and audit coverage for
-   report/summary reads beyond the current review/delete/export events.
+   report/summary reads and turns beyond the current start/review/delete/export
+   events.
 4. A documented retention policy and consent flow, including whether audio is
    ever enabled.
 5. Legal/privacy review for the target jurisdiction and a bias/validation study

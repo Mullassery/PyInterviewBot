@@ -6,6 +6,42 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-28
+
+### Added (tenant isolation)
+
+- Tenant identity is the `subject` of an `X-API-Key` from
+  `PYINTERVIEWBOT_PRINCIPALS`; `admin` principals may cross tenants. The legacy
+  `PYINTERVIEWBOT_API_KEY` identity is rejected with `403` on session, channel,
+  and compliance routes.
+- Session rows, channel mappings/events, and compliance policy are keyed by
+  owner/tenant. Cross-tenant session and workflow IDs return `404`; a valid
+  session token cannot widen access.
+- `POST /sessions` and channel starts record `session.start` audit events in the
+  same transaction as the session row, including tenant, source, and workflow
+  provenance but no claim/transcript text. Denied foreign-workflow starts are
+  audited too.
+- Workflow resolution checks ownership before status/deployment checks, and
+  workflow CRUD/audit/deployment/rollback checks ownership before role checks.
+- Migrations backfill routed sessions from their workflow owner and remaining
+  sessions/channel rows from `PYINTERVIEWBOT_LEGACY_SESSION_OWNER`, then
+  `PYINTERVIEWBOT_API_KEY_SUBJECT`, then the loopback/legacy identity. Global
+  compliance policy is copied to the legacy owner and every existing session
+  owner. Migrations are idempotent.
+- The recruiter view prompts for a tenant principal key on `401`/`403`, stores
+  it in `sessionStorage`, and never embeds it in the build.
+- Documented the tenant boundary, gateway single-tenant constraint, audit
+  coverage, migration caveat, and residual risks in `README.md`, `SECURITY.md`,
+  `docs/SECURITY_MODEL.md`, `docs/ARCHITECTURE.md`, `docs/WORKFLOWS.md`, and
+  `docs/SECURITY_AUDIT.md`.
+- Full ai-service suite is now 145 passed; tenant isolation adds cross-tenant
+  session/workflow, channel, compliance, audit, and migration coverage.
+
+### Packaging
+
+- `pyinterviewbot-ai` 0.1.2 published to PyPI (manual `uv publish`; no automated
+  release workflow exists).
+
 ### Added (workflow artifacts)
 
 - Owner-scoped `/workflows` API with principal/role authorization (`owner`,
@@ -328,6 +364,7 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
   `speak()` returning `Finished` before TTS playback had actually finished
   (Piper synthesizes faster than real time).
 
-[Unreleased]: ../PyInterviewBot/compare/4ab3ffe...HEAD
+[Unreleased]: ../PyInterviewBot/commits/main
+[0.1.2]: ../PyInterviewBot/compare/4ab3ffe...HEAD
 [0.1.1]: ../PyInterviewBot/compare/49018ce...4ab3ffe
 [0.1.0]: ../PyInterviewBot/commits/49018ce

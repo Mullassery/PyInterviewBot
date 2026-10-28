@@ -220,7 +220,7 @@ sequenceDiagram
     Note over Candidate,Gateway: Loop continues until is_complete,<br/>or MAX_TURNS (default 6) forces conclusion
 
     participant Recruiter as Recruiter browser<br/>(candidate-client /recruiter)
-    Recruiter->>AI: GET /sessions, GET /sessions/{id}/summary<br/>(bypasses gateway — shared API key)
+    Recruiter->>AI: GET /sessions, GET /sessions/{id}/summary<br/>(bypasses gateway — tenant principal key)
 ```
 
 ## Gateway session state machine
@@ -285,9 +285,11 @@ stateDiagram-v2
 - **Recruiter** (`candidate-client`'s `/recruiter` route): talks to
   ai-service directly (`GET /sessions`, `GET /sessions/{id}/summary`),
   bypassing the gateway entirely. This is the one surface transcript +
-  evidence are allowed to reach. It requires the shared ai-service API key,
-  but that key is not tenant- or session-scoped; workflow routes have
-  separate principal/role authorization. See "Not implemented" and
+  evidence are allowed to reach. It prompts for a tenant principal API key,
+  keeps it in `sessionStorage`, and sends it as `X-API-Key`; it never embeds a
+  key in the build. The ai-service binds the session list and every session
+  read/export/review/delete to that principal's subject, returning `404` for
+  another tenant's IDs. `admin` principals may cross tenants. See
   [`docs/SECURITY_MODEL.md`](SECURITY_MODEL.md).
 
 ## What's real vs. simplified in this slice
@@ -306,7 +308,7 @@ product spec on purpose:
 | Simulation engine | The one "traffic increased 20x" scenario is baked into the system prompt as an instruction, not a state machine | No general-purpose scenario/state-machine engine (spec §18-19) — no branching system-state tracking, no whiteboard/code artifact modality. |
 | Claim verification | Implicit — the agent probes the resume claim conversationally | No explicit "insufficient verification" status distinct from low evidence confidence. |
 | Human interviewer copilot | Not built | Spec §25 entirely out of scope. |
-| Recruiter auth | Shared API key | `/recruiter` and ai-service's session endpoints require the global key but have no tenant or per-session authorization. Workflow routes add principal/role checks. Not remotely deployable as-is. |
+| Recruiter auth | Tenant principal API key | `/recruiter` prompts for a key from `PYINTERVIEWBOT_PRINCIPALS` and stores it per tab. Session, channel, compliance, and workflow data are tenant-scoped; `admin` can cross tenants. No per-user login, key rotation API, or scoped read-only recruiter role yet. |
 | Audio recording | Not persisted | Transcript + evidence are persisted; raw audio is not saved anywhere, so the recruiter view has no "listen to answer" playback despite the spec describing one. |
 | Provider abstraction | One concrete implementation each for ASR/LLM/TTS (faster-whisper / Ollama / Piper) | The spec's `SpeechRecognizer`/`LanguageModel`/`SpeechSynthesizer` interfaces aren't formalized as Rust/Python traits yet — swapping providers today means editing asr.py/llm.py/tts.py directly, not registering a new implementation. |
 

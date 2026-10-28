@@ -213,6 +213,12 @@ def test_legacy_key_cannot_read_tenant_sessions(
     assert client.get("/sessions", headers={"X-API-Key": "test-key"}).status_code == 403
     assert (
         client.get(
+            "/compliance/policy", headers={"X-API-Key": "test-key"}
+        ).status_code
+        == 403
+    )
+    assert (
+        client.get(
             f"/sessions/{session_id}/summary", headers={"X-API-Key": "test-key"}
         ).status_code
         == 403

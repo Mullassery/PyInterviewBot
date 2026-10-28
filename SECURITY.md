@@ -24,27 +24,38 @@ trust boundary.
 
 ## Known, current security gaps (not hypothetical — verified in code)
 
-- **Authentication exists, but authorization is uneven.** The gateway and
-  ai-service enforce a shared API key (or loopback-only fail-closed when the
-  key is unset). `/health` is exempt. Session creation returns a per-session
-  token, the gateway forwards it on turns, and
-  `PYINTERVIEWBOT_REQUIRE_SESSION_TOKEN=1` enforces it. Workflow routes use a
-  separate `PYINTERVIEWBOT_PRINCIPALS` map with owner checks and
-  author/approver/deployer/admin roles. Interview and recruiter routes still
-  rely on the coarse shared key, so any global-key holder can read or delete
-  any session UUID, including transcripts, evidence, reports, and reviews.
-  Do not expose the recruiter API across a trust boundary yet.
-- **Live workflow routing exists, but it is not tenant-isolated.** A new direct
-  or channel session that supplies `workflow_id` is pinned to the active
-  production deployment after workflow status, deployment, binding fingerprint,
-  version hash, and artifact hash checks. Omitting it keeps the legacy
-  `template_id` path; there is no automatic selection. Because interview routes
-  share one API key, any key holder can select any active production workflow
-  by UUID. Session creation records workflow provenance but not an
-  `ai_audit_events` entry.
-- **AI-service audit coverage is partial.** Review, deletion, and report-export
-  actions append actor/target records to `ai_audit_events`; other reads are not
-  audited, and neither audit stream has automated retention or an operator UI.
+- **Tenant authorization is principal-based, not account-based.** A tenant is
+  the `subject` of an `X-API-Key` entry in `PYINTERVIEWBOT_PRINCIPALS`.
+  Session, channel, compliance, and workflow routes bind data to that subject;
+  `admin` principals may cross tenant boundaries. With
+  `PYINTERVIEWBOT_PRINCIPALS` configured, unknown keys are rejected. The legacy
+  `PYINTERVIEWBOT_API_KEY` identity can still authenticate non-tenant utility
+  routes but is rejected with `403` on session and compliance routes, and a
+  non-loopback deployment must configure principals before interview traffic
+  is served. A valid session token does not substitute for a matching tenant.
+  Cross-tenant session and workflow IDs return `404`, not `403`.
+- **Live workflow routing is tenant-checked.** A new direct or channel session
+  that supplies `workflow_id` is pinned to the active production deployment
+  only after the workflow owner matches the session owner (or the caller is
+  `admin`), and after status, deployment, binding fingerprint, version hash,
+  and artifact hash checks. Omitting it keeps the legacy `template_id` path;
+  there is no automatic selection. The gateway forwards one ai-service key, so
+  its principal subject must match the workflow owner; run one gateway process
+  per tenant rather than sharing one process across owners.
+- **AI-service audit coverage is partial.** Session starts (including denied
+  foreign-workflow starts), review, deletion, and report-export actions append
+  actor/tenant/target records to `ai_audit_events` in the same transaction as
+  the session write. Read-only summary/report/priority/resume-policy access and
+  plain turns are not audited, and neither audit stream has automated retention
+  or an operator UI.
+- **Existing databases are assigned deterministically.** Migration backfills
+  routed sessions from their workflow owner and all remaining sessions from
+  `PYINTERVIEWBOT_LEGACY_SESSION_OWNER`, then
+  `PYINTERVIEWBOT_API_KEY_SUBJECT`, then `local-operator` (when
+  `PYINTERVIEWBOT_API_KEY` is set) or `local-loopback`. Set the legacy owner
+  before starting the upgraded service when old sessions belong to a real
+  tenant; a wrong default is a data-classification problem, not a boundary
+  bypass.
 - **CORS wildcard — fixed 2026-09-22.** `ai-service/src/pyinterviewbot_ai/main.py`
   used to set `allow_origins=["*"]`, letting any page in a user's browser
   script a request to `http://127.0.0.1:8000/sessions`. It now reads a

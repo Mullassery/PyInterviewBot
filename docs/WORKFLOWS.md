@@ -150,14 +150,17 @@ allocation, approvals, deployments, and idempotency keys.
 inserted. When it is omitted, the legacy `template_id` path is unchanged and no
 workflow is selected automatically.
 
-Routing fails closed unless all of these hold:
+Routing is tenant-checked and fails closed unless all of these hold:
 
-1. The workflow exists and is `active`.
-2. It has an active `production` deployment.
-3. The current production binding revision/providers match the deployment
+1. The workflow exists and is owned by the caller's principal subject, unless
+   the caller has `admin`. A foreign workflow returns `404` before status or
+   deployment checks, so its existence is not disclosed.
+2. The workflow is `active`.
+3. It has an active `production` deployment.
+4. The current production binding revision/providers match the deployment
    fingerprint.
-4. The deployed version exists and its content hash matches the deployment.
-5. The stored artifact passes its canonical hash verification.
+5. The deployed version exists and its content hash matches the deployment.
+6. The stored artifact passes its canonical hash verification.
 
 An unknown workflow returns `404`. A disabled workflow, missing active
 deployment, missing/invalid production binding, binding mismatch, missing
@@ -174,11 +177,18 @@ session references an unknown template ID.
 
 The gateway forwards `PYINTERVIEWBOT_WORKFLOW_ID`, when set, on direct and
 channel session creation. The ID is optional; leaving it unset preserves the
-legacy template path.
+legacy template path. The gateway forwards a single ai-service key, so that
+key's principal subject must match the workflow owner; run one gateway process
+per tenant instead of sharing one process across owners.
 
-Because interview routes currently share one API key, any holder of that key
-can select any active production workflow by UUID. There is no tenant isolation
-or per-workflow session authorization yet.
+Session creation requires a tenant principal. The legacy global key is rejected
+with `403` on session, channel, and compliance routes. Existing databases are
+migrated in place: routed sessions inherit the workflow owner, other sessions
+and channel mappings use `PYINTERVIEWBOT_LEGACY_SESSION_OWNER` (falling back to
+`PYINTERVIEWBOT_API_KEY_SUBJECT`, then `local-operator`/`local-loopback`), and
+global compliance rows are copied to the legacy owner and every existing session
+owner. Set `PYINTERVIEWBOT_LEGACY_SESSION_OWNER` before upgrading if old data
+belongs to a real tenant.
 
 ## API
 
@@ -245,13 +255,15 @@ must not write call state; the gateway remains its sole writer.
 - Production dry-run is an eligibility check, not a guarantee; promotion
   re-validates the same evidence atomically.
 - Workflow audit currently covers lifecycle actions, not every read. Session
-  creation records workflow provenance on the session row but is not an
-  `ai_audit_events` entry.
+  creation now appends a `session.start` event with tenant, source, workflow
+  ID/version/deployment/hash, and template ID, but no claim or transcript text.
 - Workflow API audit events are append-only at the application layer; SQLite
   file permissions and backups are operator responsibilities.
 - A production deployment row is not proof that a specific session is using it.
   Only sessions created with `workflow_id` carry the pinned deployment ID.
-- Shared API-key access means live workflow selection is not tenant-isolated.
+- Workflow ownership is checked against the tenant principal before routing;
+  cross-tenant workflow reads and mutations return `404`. `admin` can cross
+  tenants by design.
 
 ## Tests
 

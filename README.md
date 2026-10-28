@@ -104,9 +104,10 @@ dependency-ordered plan and exact blockers.
   real local voice path. See [`docs/internal/ROADMAP_HONEST.md`](docs/internal/ROADMAP_HONEST.md)
   and [`docs/internal/BASELINE_AUDIT.md`](docs/internal/BASELINE_AUDIT.md) for what is
   verified versus still open.
-- **Not remotely deployable as-is.** Auth exists, but there is no TLS, tenant isolation,
-  scoped recruiter credentials, or distributed quota enforcement. Rate limiting and
-  per-session turn tokens are partial safeguards. See [`SECURITY.md`](SECURITY.md) and
+- **Not remotely deployable as-is.** Logical tenant isolation exists, but there is no
+  TLS, principal key rotation/revocation service, per-user recruiter login, or
+  distributed quota enforcement. Rate limiting and per-session turn tokens are partial
+  safeguards. See [`SECURITY.md`](SECURITY.md) and
   [`docs/SECURITY_MODEL.md`](docs/SECURITY_MODEL.md).
 - **Not a general-purpose Python library.** `ai-service` is published on PyPI as
   [`pyinterviewbot-ai`](https://pypi.org/project/pyinterviewbot-ai/), but installing it
@@ -117,7 +118,7 @@ dependency-ordered plan and exact blockers.
 
 ## Project status
 
-**Working MVP / early prototype.** Version 0.1.1 plus the 2026-10-25 hardening and
+**Working MVP / early prototype.** Version 0.1.2 plus the 2026-10-28 tenant-isolation and
 multi-channel work. The local web voice path, deterministic mock path, native Rust
 runtime, recording controls, channel-neutral API, scheduler, reminders, Twilio
 voice/Media Streams, WhatsApp text/voice-note intake, and Google/Outlook event
@@ -200,11 +201,22 @@ PYINTERVIEWBOT_API_KEY=change-me GATEWAY_API_KEY=gw-secret cargo run -p gateway
 
 Every non-health ai-service endpoint requires authentication:
 
-- Set `PYINTERVIEWBOT_API_KEY` and send `X-API-Key: ...` or
-  `Authorization: Bearer ...`.
-- If the variable is unset, only loopback clients are accepted; a
-  network-exposed service fails closed instead of serving transcripts to
-  anyone who can reach the port.
+- For interview/session, channel, and compliance traffic, configure
+  `PYINTERVIEWBOT_PRINCIPALS` and send a principal key as `X-API-Key: ...` or
+  `Authorization: Bearer ...`. The key's `subject` is the tenant. Data is
+  visible only to that subject; `admin` roles may cross tenants, and foreign
+  IDs return `404`.
+- `PYINTERVIEWBOT_API_KEY` remains a legacy utility identity. It is rejected
+  with `403` on session, channel, and compliance routes; non-loopback
+  deployments must configure principals before serving interviews.
+- If both are unset, only loopback clients are accepted; a network-exposed
+  service fails closed instead of serving transcripts to anyone who can reach
+  the port.
+- On upgrade, set `PYINTERVIEWBOT_LEGACY_SESSION_OWNER` before starting the upgraded service
+  to assign existing sessions and channel mappings to the right tenant.
+  Routed sessions inherit their workflow owner automatically.
+- A valid per-session token does not grant cross-tenant access; tenant matching
+  is checked first.
 - `DELETE /sessions/{id}` deletes the session, transcript, evidence, and review
   rows for a retention request.
 - `POST /sessions` returns a per-session `session_token` (stored as a SHA-256
@@ -217,13 +229,16 @@ Every non-health ai-service endpoint requires authentication:
 
 ### Workflow authorization
 
-Workflow routes use a separate principals/roles map instead of the legacy
-global key:
+Workflow routes also use the principals/roles map:
 
 ```bash
 PYINTERVIEWBOT_PRINCIPALS='{"alice-key":{"subject":"alice","roles":["owner","author","deployer"]},"bob-key":{"subject":"bob","roles":["approver"]}}'
 PYINTERVIEWBOT_PRODUCTION_BINDING_REVISION=prod-2026-10
 ```
+
+The gateway forwards one ai-service key, so its key's subject must match the
+workflow owner. Run one gateway process per tenant; do not point several tenants
+at one gateway process.
 
 Published workflow versions are immutable and content-hashed. Promotion requires
 the same hash to pass the fixed mock sandbox, receive an approval from the
@@ -234,7 +249,7 @@ New sessions can optionally request the active production workflow by UUID:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/sessions \
-  -H "X-API-Key: change-me" -H "Content-Type: application/json" \
+  -H "X-API-Key: alice-key" -H "Content-Type: application/json" \
   -d '{"workflow_id":"00000000-0000-0000-0000-000000000000"}'
 ```
 
@@ -246,9 +261,9 @@ automatically. The gateway forwards `PYINTERVIEWBOT_WORKFLOW_ID` when set. See
 [`docs/WORKFLOWS.md`](docs/WORKFLOWS.md).
 
 The gateway forwards its ai-service key automatically. `/health` remains
-unauthenticated for probes. Session tokens are defense-in-depth, not a
-replacement for scoped/tenant authorization; see
-[`docs/SECURITY_MODEL.md`](docs/SECURITY_MODEL.md).
+unauthenticated for probes. Session tokens are defense-in-depth; the tenant
+boundary is enforced separately on every session, channel, compliance, and
+workflow route. See [`docs/SECURITY_MODEL.md`](docs/SECURITY_MODEL.md).
 
 ## Provider selection and mock mode
 
@@ -670,8 +685,9 @@ docs/
 ## Known issues and deferred work
 
 **Open:**
-- TLS/WSS, tenant isolation, scoped recruiter credentials, shared quotas/audit log,
-  consent/retention controls, bias/validation study, live CI E2E for real models.
+- TLS/WSS, principal key rotation/revocation and per-user recruiter login, shared
+  quotas/audit log, consent/retention controls, bias/validation study, live CI E2E
+  for real models.
 - Live Twilio voice/Media Streams, WhatsApp, Google Calendar, and Microsoft Graph
   verification with approved accounts and public HTTPS/WSS endpoints.
 - Teams transcript evaluation and autonomous live Teams participation.

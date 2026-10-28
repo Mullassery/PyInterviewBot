@@ -132,6 +132,10 @@ async def test_init_db_backfills_session_owners_and_is_idempotent(
             "INSERT INTO sessions (id, created_at, resume_claim, workflow_id) "
             "VALUES ('s2', '2026-01-02', 'two', NULL)"
         )
+        await conn.execute(
+            "INSERT INTO sessions (id, created_at, resume_claim, workflow_id) "
+            "VALUES ('s3', '2026-01-03', 'three', 'missing-workflow')"
+        )
         await conn.commit()
 
     await db.init_db()
@@ -144,7 +148,11 @@ async def test_init_db_backfills_session_owners_and_is_idempotent(
         owners = dict(await cursor.fetchall())
         cursor = await conn.execute("PRAGMA index_list(sessions)")
         indexes = {row[1] for row in await cursor.fetchall()}
-    assert owners == {"s1": "alice", "s2": "legacy-owner"}
+    assert owners == {
+        "s1": "alice",
+        "s2": "legacy-owner",
+        "s3": "legacy-owner",
+    }
     assert "idx_sessions_owner_created" in indexes
 
 

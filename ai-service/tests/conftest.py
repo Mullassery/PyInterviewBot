@@ -1,6 +1,5 @@
-from collections.abc import Iterator
-
 import json
+from collections.abc import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
