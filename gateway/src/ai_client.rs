@@ -354,9 +354,7 @@ mod tests {
         let client = AiClient::new(format!("http://{addr}"))
             .with_api_key(Some("secret".to_string()))
             .with_template(Some("backend_engineer".to_string()))
-            .with_workflow(Some(
-                "00000000-0000-0000-0000-000000000002".to_string(),
-            ));
+            .with_workflow(Some("00000000-0000-0000-0000-000000000002".to_string()));
         let started = client.start_session().await.unwrap();
         assert_eq!(started.question_text, "hello");
         assert_eq!(started.session_token.as_deref(), Some("session-token"));
@@ -400,9 +398,7 @@ mod tests {
 
         let client = AiClient::new(format!("http://{addr}"))
             .with_template(Some("backend_engineer".to_string()))
-            .with_workflow(Some(
-                "00000000-0000-0000-0000-000000000002".to_string(),
-            ));
+            .with_workflow(Some("00000000-0000-0000-0000-000000000002".to_string()));
         let started = client
             .start_channel_session("web", "candidate-1", Some("backend_engineer"))
             .await
