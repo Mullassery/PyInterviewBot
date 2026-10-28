@@ -211,9 +211,12 @@ async def channel_session(
 @app.post(
     "/channels/{channel}/messages",
     response_model=ChannelMessageResponse,
-    dependencies=[Depends(require_auth)],
 )
-async def channel_message(channel: str, req: ChannelMessageRequest) -> ChannelMessageResponse:
+async def channel_message(
+    channel: str,
+    req: ChannelMessageRequest,
+    principal: Annotated[Principal, Depends(require_tenant_auth)],
+) -> ChannelMessageResponse:
     try:
         return await channels.submit_message(
             channel,
@@ -221,6 +224,8 @@ async def channel_message(channel: str, req: ChannelMessageRequest) -> ChannelMe
             req.event_id,
             req.text,
             req.template_id,
+            owner_subject=principal.subject,
+            allow_cross_tenant=principal.has_role("admin"),
         )
     except channels.ChannelError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc

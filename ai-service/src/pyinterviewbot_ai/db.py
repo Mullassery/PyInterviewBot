@@ -111,20 +111,22 @@ CREATE TABLE IF NOT EXISTS evidence (
 );
 
 CREATE TABLE IF NOT EXISTS channel_sessions (
+    owner_subject TEXT NOT NULL,
     channel TEXT NOT NULL,
     external_id TEXT NOT NULL,
     session_id TEXT NOT NULL REFERENCES sessions(id),
     created_at TEXT NOT NULL,
-    PRIMARY KEY (channel, external_id)
+    PRIMARY KEY (owner_subject, channel, external_id)
 );
 
 CREATE TABLE IF NOT EXISTS channel_events (
+    owner_subject TEXT NOT NULL,
     channel TEXT NOT NULL,
     event_id TEXT NOT NULL,
     session_id TEXT NOT NULL REFERENCES sessions(id),
     response_json TEXT NOT NULL,
     created_at TEXT NOT NULL,
-    PRIMARY KEY (channel, event_id)
+    PRIMARY KEY (owner_subject, channel, event_id)
 );
 
 CREATE TABLE IF NOT EXISTS compliance_policy (
@@ -364,9 +366,55 @@ async def _migrate_session_tenant(conn: aiosqlite.Connection) -> None:
     )
 
 
+async def _migrate_channel_tenant(conn: aiosqlite.Connection) -> None:
+    cursor = await conn.execute("PRAGMA table_info(channel_sessions)")
+    columns = {row[1] for row in await cursor.fetchall()}
+    if "owner_subject" in columns:
+        return
+    legacy_owner = _legacy_owner_subject()
+    await conn.execute(
+        "CREATE TABLE channel_sessions_new ("
+        "owner_subject TEXT NOT NULL, channel TEXT NOT NULL, "
+        "external_id TEXT NOT NULL, session_id TEXT NOT NULL REFERENCES sessions(id), "
+        "created_at TEXT NOT NULL, "
+        "PRIMARY KEY (owner_subject, channel, external_id))"
+    )
+    await conn.execute(
+        "INSERT INTO channel_sessions_new "
+        "(owner_subject, channel, external_id, session_id, created_at) "
+        "SELECT COALESCE((SELECT owner_subject FROM sessions "
+        "WHERE sessions.id = channel_sessions.session_id), ?), "
+        "channel, external_id, session_id, created_at FROM channel_sessions",
+        (legacy_owner,),
+    )
+    await conn.execute("DROP TABLE channel_sessions")
+    await conn.execute(
+        "ALTER TABLE channel_sessions_new RENAME TO channel_sessions"
+    )
+
+    await conn.execute(
+        "CREATE TABLE channel_events_new ("
+        "owner_subject TEXT NOT NULL, channel TEXT NOT NULL, "
+        "event_id TEXT NOT NULL, session_id TEXT NOT NULL REFERENCES sessions(id), "
+        "response_json TEXT NOT NULL, created_at TEXT NOT NULL, "
+        "PRIMARY KEY (owner_subject, channel, event_id))"
+    )
+    await conn.execute(
+        "INSERT INTO channel_events_new "
+        "(owner_subject, channel, event_id, session_id, response_json, created_at) "
+        "SELECT COALESCE((SELECT owner_subject FROM sessions "
+        "WHERE sessions.id = channel_events.session_id), ?), "
+        "channel, event_id, session_id, response_json, created_at FROM channel_events",
+        (legacy_owner,),
+    )
+    await conn.execute("DROP TABLE channel_events")
+    await conn.execute("ALTER TABLE channel_events_new RENAME TO channel_events")
+
+
 MIGRATIONS = (
     ("001_single_active_deployment", _migrate_single_active_deployment),
     ("002_session_tenant", _migrate_session_tenant),
+    ("003_channel_tenant", _migrate_channel_tenant),
 )
 
 
@@ -734,36 +782,42 @@ async def get_reviews(session_id: UUID) -> list[ReviewCorrection]:
         ]
 
 
-async def get_channel_session(channel: str, external_id: str) -> str | None:
+async def get_channel_session(
+    owner_subject: str, channel: str, external_id: str
+) -> str | None:
     async with connect() as db:
         cursor = await db.execute(
-            "SELECT session_id FROM channel_sessions WHERE channel = ? AND external_id = ?",
-            (channel, external_id),
+            "SELECT session_id FROM channel_sessions "
+            "WHERE owner_subject = ? AND channel = ? AND external_id = ?",
+            (owner_subject, channel, external_id),
         )
         row = await cursor.fetchone()
         return row[0] if row else None
 
 
 async def bind_channel_session(
-    channel: str, external_id: str, session_id: UUID
+    owner_subject: str, channel: str, external_id: str, session_id: UUID
 ) -> bool:
     async with connect() as db:
         cursor = await db.execute(
             "INSERT OR IGNORE INTO channel_sessions "
-            "(channel, external_id, session_id, created_at) VALUES (?, ?, ?, ?)",
-            (channel, external_id, str(session_id), _now()),
+            "(owner_subject, channel, external_id, session_id, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (owner_subject, channel, external_id, str(session_id), _now()),
         )
         await db.commit()
         return cursor.rowcount > 0
 
 
-async def get_channel_event(channel: str, event_id: str) -> dict | None:
+async def get_channel_event(
+    owner_subject: str, channel: str, event_id: str
+) -> dict | None:
     async with connect() as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             "SELECT session_id, response_json FROM channel_events "
-            "WHERE channel = ? AND event_id = ?",
-            (channel, event_id),
+            "WHERE owner_subject = ? AND channel = ? AND event_id = ?",
+            (owner_subject, channel, event_id),
         )
         row = await cursor.fetchone()
         if row is None:
@@ -775,14 +829,25 @@ async def get_channel_event(channel: str, event_id: str) -> dict | None:
 
 
 async def record_channel_event(
-    channel: str, event_id: str, session_id: UUID, response: dict
+    owner_subject: str,
+    channel: str,
+    event_id: str,
+    session_id: UUID,
+    response: dict,
 ) -> bool:
     async with connect() as db:
         cursor = await db.execute(
             "INSERT OR IGNORE INTO channel_events "
-            "(channel, event_id, session_id, response_json, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (channel, event_id, str(session_id), json.dumps(response), _now()),
+            "(owner_subject, channel, event_id, session_id, response_json, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                owner_subject,
+                channel,
+                event_id,
+                str(session_id),
+                json.dumps(response),
+                _now(),
+            ),
         )
         await db.commit()
         return cursor.rowcount > 0

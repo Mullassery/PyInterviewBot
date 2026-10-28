@@ -148,6 +148,70 @@ async def test_init_db_backfills_session_owners_and_is_idempotent(
     assert "idx_sessions_owner_created" in indexes
 
 
+async def test_init_db_backfills_channel_owner_from_session(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "legacy-channels.db"))
+    await db.init_db()
+    alice_session = uuid4()
+    bob_session = uuid4()
+    for session_id, owner in ((alice_session, "alice"), (bob_session, "bob")):
+        await db.create_session(
+            session_id,
+            ResumeClaim(competency="x", text="x"),
+            owner_subject=owner,
+            audit_source="test",
+        )
+    async with aiosqlite.connect(db.DB_PATH) as conn:
+        await conn.execute("DROP TABLE channel_sessions")
+        await conn.execute("DROP TABLE channel_events")
+        await conn.execute(
+            "CREATE TABLE channel_sessions (channel TEXT NOT NULL, "
+            "external_id TEXT NOT NULL, session_id TEXT NOT NULL, "
+            "created_at TEXT NOT NULL, PRIMARY KEY (channel, external_id))"
+        )
+        await conn.execute(
+            "CREATE TABLE channel_events (channel TEXT NOT NULL, "
+            "event_id TEXT NOT NULL, session_id TEXT NOT NULL, "
+            "response_json TEXT NOT NULL, created_at TEXT NOT NULL, "
+            "PRIMARY KEY (channel, event_id))"
+        )
+        await conn.execute(
+            "INSERT INTO channel_sessions VALUES ('web', 'shared', ?, 'now')",
+            (str(alice_session),),
+        )
+        await conn.execute(
+            "INSERT INTO channel_sessions VALUES ('twilio_voice', 'other', ?, 'now')",
+            (str(bob_session),),
+        )
+        await conn.execute(
+            "INSERT INTO channel_events VALUES ('web', 'event-1', ?, '{}', 'now')",
+            (str(alice_session),),
+        )
+        await conn.execute(
+            "INSERT INTO channel_events VALUES ('web', 'event-2', ?, '{}', 'now')",
+            (str(bob_session),),
+        )
+        await conn.execute(
+            "DELETE FROM schema_migrations WHERE name = '003_channel_tenant'"
+        )
+        await conn.commit()
+
+    await db.init_db()
+    await db.init_db()
+
+    async with aiosqlite.connect(db.DB_PATH) as conn:
+        cursor = await conn.execute(
+            "SELECT owner_subject, channel, external_id FROM channel_sessions "
+            "ORDER BY channel"
+        )
+        sessions = await cursor.fetchall()
+        cursor = await conn.execute(
+            "SELECT owner_subject, channel, event_id FROM channel_events ORDER BY event_id"
+        )
+        events = await cursor.fetchall()
+    assert sessions == [("bob", "twilio_voice", "other"), ("alice", "web", "shared")]
+    assert events == [("alice", "web", "event-1"), ("bob", "web", "event-2")]
+
+
 async def test_create_session_rolls_back_when_audit_insert_fails() -> None:
     session_id = uuid4()
     await db.init_db()

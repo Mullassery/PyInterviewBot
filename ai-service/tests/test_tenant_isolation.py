@@ -126,6 +126,60 @@ def test_valid_session_token_does_not_override_tenant(
     assert response.status_code == 404
 
 
+def test_channel_mappings_and_events_are_tenant_scoped(
+    client: TestClient, tenant_auth
+) -> None:
+    alice_session = client.post(
+        "/channels/web/sessions",
+        json={"external_id": "shared-id"},
+        headers=tenant_auth["alice"],
+    ).json()
+    bob_session = client.post(
+        "/channels/web/sessions",
+        json={"external_id": "shared-id"},
+        headers=tenant_auth["bob"],
+    ).json()
+    assert alice_session["session_id"] != bob_session["session_id"]
+
+    alice_message = client.post(
+        "/channels/web/messages",
+        json={
+            "external_id": "shared-id",
+            "event_id": "shared-event",
+            "text": "Alice candidate answer.",
+        },
+        headers=tenant_auth["alice"],
+    )
+    bob_message = client.post(
+        "/channels/web/messages",
+        json={
+            "external_id": "shared-id",
+            "event_id": "shared-event",
+            "text": "Bob candidate answer.",
+        },
+        headers=tenant_auth["bob"],
+    )
+    assert alice_message.status_code == 200, alice_message.text
+    assert bob_message.status_code == 200, bob_message.text
+    assert alice_message.json()["duplicate"] is False
+    assert bob_message.json()["duplicate"] is False
+    assert alice_message.json()["session_id"] != bob_message.json()["session_id"]
+
+    for session_id, headers in (
+        (alice_session["session_id"], tenant_auth["alice"]),
+        (bob_session["session_id"], tenant_auth["bob"]),
+    ):
+        summary = client.get(
+            f"/sessions/{session_id}/summary", headers=headers
+        ).json()
+        candidate_turns = [
+            segment
+            for segment in summary["transcript"]
+            if segment["speaker"] == "candidate"
+        ]
+        assert len(candidate_turns) == 1
+
+
 def test_foreign_tenant_gets_404_on_workflow_routes(
     client: TestClient, tenant_auth
 ) -> None:

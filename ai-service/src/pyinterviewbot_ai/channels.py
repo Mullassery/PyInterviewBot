@@ -61,11 +61,14 @@ async def start_or_resume(
     allow_cross_tenant: bool = False,
 ) -> ChannelSessionResponse:
     validate_channel(channel)
-    existing = await db.get_channel_session(channel, external_id)
+    existing = await db.get_channel_session(owner_subject, channel, external_id)
     if existing:
         session_id = UUID(existing)
         row = await db.get_session_row(session_id)
-        if row is None:
+        if row is None or (
+            row["owner_subject"] != owner_subject
+            and not allow_cross_tenant
+        ):
             raise ChannelNotFound("channel session points to a deleted interview")
         return ChannelSessionResponse(
             channel=channel,
@@ -88,14 +91,19 @@ async def start_or_resume(
     )
     session_id = result.session_id
     template = result.template_id
-    if not await db.bind_channel_session(channel, external_id, session_id):
+    if not await db.bind_channel_session(
+        owner_subject, channel, external_id, session_id
+    ):
         await db.delete_session(session_id, owner_subject=owner_subject)
-        existing = await db.get_channel_session(channel, external_id)
+        existing = await db.get_channel_session(owner_subject, channel, external_id)
         if not existing:
             raise ChannelNotStarted("could not bind channel session")
         session_id = UUID(existing)
         row = await db.get_session_row(session_id)
-        if row is None:
+        if row is None or (
+            row["owner_subject"] != owner_subject
+            and not allow_cross_tenant
+        ):
             raise ChannelNotFound("channel session points to a deleted interview")
     return ChannelSessionResponse(
         channel=channel,
@@ -116,21 +124,28 @@ async def submit_message(
     event_id: str,
     text: str,
     template_id: str | None,
+    *,
+    owner_subject: str,
+    allow_cross_tenant: bool = False,
 ) -> ChannelMessageResponse:
     validate_channel(channel)
-    existing_event = await db.get_channel_event(channel, event_id)
+    existing_event = await db.get_channel_event(owner_subject, channel, event_id)
     if existing_event:
         stored = existing_event["response"]
         stored["duplicate"] = True
         return ChannelMessageResponse.model_validate(stored)
 
-    session_id_text = await db.get_channel_session(channel, external_id)
+    session_id_text = await db.get_channel_session(
+        owner_subject, channel, external_id
+    )
     if not session_id_text:
         raise ChannelNotStarted("start the channel session before sending messages")
     session_id = UUID(session_id_text)
 
     row = await db.get_session_row(session_id)
-    if row is None:
+    if row is None or (
+        row["owner_subject"] != owner_subject and not allow_cross_tenant
+    ):
         raise ChannelNotFound("unknown interview session")
     if bool(row["is_complete"]):
         raise ChannelComplete("interview is already complete")
@@ -144,8 +159,10 @@ async def submit_message(
         "is_complete": turn.is_complete,
         "duplicate": False,
     }
-    if not await db.record_channel_event(channel, event_id, session_id, response):
-        stored = await db.get_channel_event(channel, event_id)
+    if not await db.record_channel_event(
+        owner_subject, channel, event_id, session_id, response
+    ):
+        stored = await db.get_channel_event(owner_subject, channel, event_id)
         if stored:
             result = stored["response"]
             result["duplicate"] = True
