@@ -6,7 +6,7 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
 
 ## [Unreleased]
 
-## [0.1.2] - 2026-10-28
+## [0.1.3] - 2026-10-28
 
 ### Added (tenant isolation)
 
@@ -37,9 +37,15 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
 - Full ai-service suite is now 145 passed; tenant isolation adds cross-tenant
   session/workflow, channel, compliance, audit, and migration coverage.
 
+### Documentation
+
+- Added the enterprise tenant IAM/RBAC design covering per-tenant OIDC, SAML
+  2.0, SCIM 2.0, group-to-role mapping, server-side browser sessions, and an
+  admin console. It is designed but not implemented.
+
 ### Packaging
 
-- `pyinterviewbot-ai` 0.1.2 published to PyPI (manual `uv publish`; no automated
+- `pyinterviewbot-ai` 0.1.3 published to PyPI (manual `uv publish`; no automated
   release workflow exists).
 
 ### Added (workflow artifacts)
@@ -365,6 +371,6 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
   (Piper synthesizes faster than real time).
 
 [Unreleased]: ../PyInterviewBot/commits/main
-[0.1.2]: ../PyInterviewBot/compare/4ab3ffe...HEAD
+[0.1.3]: ../PyInterviewBot/commits/main
 [0.1.1]: ../PyInterviewBot/compare/49018ce...4ab3ffe
 [0.1.0]: ../PyInterviewBot/commits/49018ce

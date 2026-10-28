@@ -118,13 +118,17 @@ dependency-ordered plan and exact blockers.
 
 ## Project status
 
-**Working MVP / early prototype.** Version 0.1.2 plus the 2026-10-28 tenant-isolation and
+**Working MVP / early prototype.** Version 0.1.3 plus the 2026-10-28 tenant-isolation and
 multi-channel work. The local web voice path, deterministic mock path, native Rust
 runtime, recording controls, channel-neutral API, scheduler, reminders, Twilio
 voice/Media Streams, WhatsApp text/voice-note intake, and Google/Outlook event
 creation are implemented and locally tested. Live Twilio/WhatsApp/Google/Microsoft
 validation remains pending, and Teams transcript/live-bot integration is not
-implemented. See [`docs/ROADMAP.md`](docs/ROADMAP.md),
+implemented. Enterprise IAM/RBAC (per-tenant OIDC, SAML 2.0, SCIM 2.0,
+group-to-role mapping, and an admin console) is designed but not implemented;
+see the
+[tenant IAM/RBAC design](docs/superpowers/specs/2026-10-28-tenant-iam-rbac-design.md).
+See [`docs/ROADMAP.md`](docs/ROADMAP.md),
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), and [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Installation
