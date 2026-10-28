@@ -4,6 +4,21 @@
 // rather than through the candidate-facing gateway).
 
 const AI_SERVICE_URL = (import.meta as any).env?.VITE_AI_SERVICE_URL ?? "http://127.0.0.1:8000";
+const API_KEY_STORAGE = "pyinterviewbot.apiKey";
+
+async function apiFetch(path: string): Promise<Response> {
+  let key = sessionStorage.getItem(API_KEY_STORAGE);
+  let response = await fetch(`${AI_SERVICE_URL}${path}`, {
+    headers: key ? { "X-API-Key": key } : {},
+  });
+  if (response.status !== 401 && response.status !== 403) return response;
+
+  sessionStorage.removeItem(API_KEY_STORAGE);
+  key = window.prompt("AI service tenant API key")?.trim() || "";
+  if (!key) return response;
+  sessionStorage.setItem(API_KEY_STORAGE, key);
+  return fetch(`${AI_SERVICE_URL}${path}`, { headers: { "X-API-Key": key } });
+}
 
 interface SessionListItem {
   session_id: string;
@@ -44,7 +59,11 @@ export async function renderRecruiterView(root: HTMLElement): Promise<void> {
 
   let sessions: SessionListItem[] = [];
   try {
-    const res = await fetch(`${AI_SERVICE_URL}/sessions`);
+    const res = await apiFetch("/sessions");
+    if (!res.ok) {
+      body.textContent = "Could not load sessions. Check your tenant API key.";
+      return;
+    }
     sessions = await res.json();
   } catch {
     body.textContent = "Could not reach ai-service. Is it running on " + AI_SERVICE_URL + "?";
@@ -79,7 +98,7 @@ async function loadSummary(sessionId: string): Promise<void> {
   const detail = document.getElementById("rv-detail")!;
   detail.textContent = "Loading…";
 
-  const res = await fetch(`${AI_SERVICE_URL}/sessions/${sessionId}/summary`);
+  const res = await apiFetch(`/sessions/${sessionId}/summary`);
   if (!res.ok) {
     detail.textContent = "Could not load that session.";
     return;

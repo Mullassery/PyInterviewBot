@@ -172,7 +172,9 @@ cd candidate-client && npm run dev
 
 Then open `http://localhost:5173` — test your microphone, begin the interview, and talk.
 Open `http://localhost:5173/recruiter` in another tab to watch the transcript and evidence
-graph fill in as you go.
+graph fill in as you go. The recruiter view prompts for a tenant principal API key on a
+`401`/`403` and keeps it in `sessionStorage` for the tab; it never embeds a key in the
+build.
 
 ### Gateway authentication
 
