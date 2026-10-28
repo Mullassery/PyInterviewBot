@@ -81,6 +81,14 @@ Rejected: auto-select when exactly one deployment is active. It makes an omitted
 field change behavior based on global state. Chosen: optional `workflow_id`;
 omitted means the legacy template path.
 
+### Conflicting template input
+
+When both `template_id` and `workflow_id` are supplied, the workflow wins and
+`template_id` is ignored. The response `template_id` is the artifact's pinned
+template ID. Rejecting the combination would break gateway configurations that
+still set `PYINTERVIEWBOT_TEMPLATE`; silently preferring the built-in template
+would defeat explicit routing.
+
 ## Resolution contract
 
 For a supplied `workflow_id`:
@@ -139,10 +147,16 @@ continue to compile and behave identically.
 - Return a `SessionStartResult` carrying session ID, opening question, template
   ID, token, and optional workflow provenance.
 
-`agent.take_turn` selects the session template in this order:
+A shared session-template resolver selects the template in this order:
 
 1. If `template_snapshot_json` is present, validate and convert the snapshot.
 2. Otherwise load the current built-in template by `template_id`.
+
+The resolver is used by every session-scoped template lookup, not only turns:
+the agent, report and report export, priority reads/writes, and evidence review.
+Report endpoints retain their existing fallback to the default built-in template
+only for legacy sessions whose template ID is unknown. A routed session never
+falls back to a built-in template.
 
 A corrupt pinned snapshot is an internal error, not a 404. Existing sessions with
 no snapshot keep their current behavior.
@@ -162,8 +176,10 @@ or null for legacy sessions.
 
 The Rust `AiClient` gains an optional workflow ID. The gateway reads
 `PYINTERVIEWBOT_WORKFLOW_ID` and forwards it for direct and channel session
-creation. Unset means legacy behavior. Direct API callers may set the JSON field
-without changing gateway configuration.
+creation. Unset means legacy behavior. If the gateway still has
+`PYINTERVIEWBOT_TEMPLATE` set, it forwards both and the workflow takes precedence.
+Direct API callers may set the JSON field without changing gateway
+configuration.
 
 The raw production binding, provider credentials, and binding fingerprint are
 never returned in session responses.
@@ -211,6 +227,9 @@ the binding fingerprint.
   missing version, and hash mismatch return 409.
 - A promotion or rollback after session creation does not change the session's
   pinned template or its turn behavior.
+- Reports, report exports, priorities, and reviews use the pinned snapshot after
+  the built-in template changes.
+- Supplying both `template_id` and `workflow_id` uses the workflow template.
 - Corrupt snapshot handling fails without returning a misleading 404.
 - Additive schema migration adds the columns to an older database.
 - Gateway test asserts `workflow_id` is forwarded for direct and channel starts.
