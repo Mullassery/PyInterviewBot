@@ -70,9 +70,11 @@ artifact identity and promotion controls are detailed in
   read any session UUID. There is no tenant isolation or scoped recruiter key.
   Do not expose the recruiter API across trust boundaries yet. Workflow routes
   use the newer principals/roles map, but it does not isolate non-workflow data.
-- Workflow production deployment is a registry action only. No candidate
-  session runtime selects the active deployment yet, so a production row must
-  not be represented as a live workflow serving interviews.
+- Live workflow routing is opt-in per session. A supplied `workflow_id` is
+  resolved against an active production deployment and pinned on the session;
+  an omitted ID leaves the legacy template path unchanged. Shared API-key
+  access means any key holder can select any active production workflow by
+  UUID, so workflow selection does not provide tenant isolation.
 - Workflow audit covers lifecycle mutations, not reads, and relies on SQLite
   file permissions and backups for tamper resistance.
 - Rate limiting is per-process only. Add a shared proxy/gateway limit and

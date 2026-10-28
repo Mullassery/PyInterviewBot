@@ -34,10 +34,14 @@ trust boundary.
   rely on the coarse shared key, so any global-key holder can read or delete
   any session UUID, including transcripts, evidence, reports, and reviews.
   Do not expose the recruiter API across a trust boundary yet.
-- **Workflow controls are a registry, not live routing.** Production workflow
-  deployments are recorded and audited, but no candidate session runtime
-  selects an active deployment yet. Do not describe a promoted workflow as
-  serving live interviews.
+- **Live workflow routing exists, but it is not tenant-isolated.** A new direct
+  or channel session that supplies `workflow_id` is pinned to the active
+  production deployment after workflow status, deployment, binding fingerprint,
+  version hash, and artifact hash checks. Omitting it keeps the legacy
+  `template_id` path; there is no automatic selection. Because interview routes
+  share one API key, any key holder can select any active production workflow
+  by UUID. Session creation records workflow provenance but not an
+  `ai_audit_events` entry.
 - **AI-service audit coverage is partial.** Review, deletion, and report-export
   actions append actor/target records to `ai_audit_events`; other reads are not
   audited, and neither audit stream has automated retention or an operator UI.

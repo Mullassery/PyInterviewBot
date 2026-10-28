@@ -226,8 +226,21 @@ PYINTERVIEWBOT_PRODUCTION_BINDING_REVISION=prod-2026-10
 Published workflow versions are immutable and content-hashed. Promotion requires
 the same hash to pass the fixed mock sandbox, receive an approval from the
 assigned approver, and match a capable production binding. Rollback requires the
-same production binding fingerprint. The production deployment is currently a
-registry entry; live candidate sessions do not yet consume it. See
+same production binding fingerprint.
+
+New sessions can optionally request the active production workflow by UUID:
+
+```bash
+curl -X POST http://127.0.0.1:8000/sessions \
+  -H "X-API-Key: change-me" -H "Content-Type: application/json" \
+  -d '{"workflow_id":"00000000-0000-0000-0000-000000000000"}'
+```
+
+The route is resolved before the session is created and the workflow's template
+snapshot is pinned on that session. Turns, reports, priorities, and review keep
+using the pin after later promotions, rollbacks, or disablement. Omitting
+`workflow_id` preserves the legacy `template_id` path; no workflow is selected
+automatically. The gateway forwards `PYINTERVIEWBOT_WORKFLOW_ID` when set. See
 [`docs/WORKFLOWS.md`](docs/WORKFLOWS.md).
 
 The gateway forwards its ai-service key automatically. `/health` remains
@@ -506,6 +519,11 @@ Channel adapters share one interview engine and one durable session mapping:
 curl -X POST http://127.0.0.1:8000/channels/twilio_voice/sessions \
   -H "X-API-Key: change-me" -H "Content-Type: application/json" \
   -d '{"external_id":"+15551234567","template_id":"backend_engineer"}'
+
+# Channel starts also accept an optional active production workflow_id
+curl -X POST http://127.0.0.1:8000/channels/twilio_voice/sessions \
+  -H "X-API-Key: change-me" -H "Content-Type: application/json" \
+  -d '{"external_id":"+15551234567","workflow_id":"00000000-0000-0000-0000-000000000000"}'
 
 # Submit one idempotent candidate message; duplicate event IDs return the same result
 curl -X POST http://127.0.0.1:8000/channels/twilio_voice/messages \

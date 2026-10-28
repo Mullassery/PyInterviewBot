@@ -6,8 +6,12 @@
 
 - **Type:** Review codebase for specifics
 - **Maturity:** Active development
-- **Strengths:** Custom implementation tailored to use case
-- **Gaps:** Documentation, testing, ecosystem integration opportunities
+- **Strengths:** Custom implementation tailored to use case; versioned workflow
+  artifacts with optional live session routing
+- **Gaps:** Documentation, testing, tenant isolation, ecosystem integration
+  opportunities
+- **Completed 2026-10-28:** opt-in direct/channel routing to active production
+  workflow deployments with pinned template snapshots
 
 ## Competitive Landscape Analysis
 

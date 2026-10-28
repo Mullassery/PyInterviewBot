@@ -1,15 +1,16 @@
 # Workflow artifacts, testing, and promotion
 
-Last updated: 2026-10-26.
+Last updated: 2026-10-28.
 
 Workflows are versioned interview configurations owned by a principal. A
 published version is an immutable artifact identified by its canonical SHA-256
 content hash. The same hash must pass the sandbox suites and receive an
 approval before it can be promoted to production.
 
-This implements the artifact lifecycle and production deployment registry. It
-does not yet route live candidate sessions to the active workflow deployment;
-that runtime integration remains pending.
+This implements the artifact lifecycle, production deployment registry, and
+optional live routing for new candidate sessions. A session that supplies a
+`workflow_id` is pinned to the active production deployment at creation time;
+a session that omits it keeps the legacy `template_id` behavior.
 
 ## Invariant
 
@@ -100,6 +101,8 @@ draft
   -> production dry-run reports blockers
   -> promote exact tested + approved hash
   -> active production deployment
+  -> new session supplies workflow_id
+  -> route resolved, template snapshot pinned on the session
   -> rollback to a previous production deployment with the same binding
 ```
 
@@ -132,11 +135,50 @@ run and hash.
   its fingerprint differs from the target deployment.
 - A failed deployment cannot be used as a rollback target.
 - Disabled workflows cannot be deployed to sandbox, have new approval requests
-  created, or be promoted; already-deployed sandbox tests and pending approval
-  decisions can still complete. Enable the workflow before resuming new work.
+  created, have pending approval decisions completed, or be promoted; their
+  active deployments are marked `disabled`. Enable the workflow before resuming
+  new work.
 
 SQLite writes use `BEGIN IMMEDIATE` plus unique constraints for version
 allocation, approvals, deployments, and idempotency keys.
+
+## Live session routing
+
+`POST /sessions` and `POST /channels/{channel}/sessions` accept an optional
+`workflow_id` UUID. When it is supplied, `workflow_id` takes precedence over
+`template_id`; the request is resolved and pinned before the session row is
+inserted. When it is omitted, the legacy `template_id` path is unchanged and no
+workflow is selected automatically.
+
+Routing fails closed unless all of these hold:
+
+1. The workflow exists and is `active`.
+2. It has an active `production` deployment.
+3. The current production binding revision/providers match the deployment
+   fingerprint.
+4. The deployed version exists and its content hash matches the deployment.
+5. The stored artifact passes its canonical hash verification.
+
+An unknown workflow returns `404`. A disabled workflow, missing active
+deployment, missing/invalid production binding, binding mismatch, missing
+version, or hash mismatch returns `409`. A corrupt persisted template snapshot
+is an internal error, not a `404`.
+
+The session persists `workflow_id`, `workflow_version`, `workflow_content_hash`,
+`workflow_deployment_id`, and `template_snapshot_json`. Agent turns, reports,
+report exports, priorities, and evidence review read the pinned snapshot through
+one shared resolver. In-flight sessions keep their original pin across later
+promotion, rollback, disablement, or built-in template changes. Legacy
+report/export requests may still fall back to the default template when an old
+session references an unknown template ID.
+
+The gateway forwards `PYINTERVIEWBOT_WORKFLOW_ID`, when set, on direct and
+channel session creation. The ID is optional; leaving it unset preserves the
+legacy template path.
+
+Because interview routes currently share one API key, any holder of that key
+can select any active production workflow by UUID. There is no tenant isolation
+or per-workflow session authorization yet.
 
 ## API
 
@@ -202,11 +244,14 @@ must not write call state; the gateway remains its sole writer.
   artifacts; they are hashed and stored verbatim.
 - Production dry-run is an eligibility check, not a guarantee; promotion
   re-validates the same evidence atomically.
-- Workflow audit currently covers lifecycle actions, not every read.
+- Workflow audit currently covers lifecycle actions, not every read. Session
+  creation records workflow provenance on the session row but is not an
+  `ai_audit_events` entry.
 - Workflow API audit events are append-only at the application layer; SQLite
   file permissions and backups are operator responsibilities.
-- No live candidate runtime consumes the active deployment yet. Do not present a
-  production deployment row as proof that a workflow is serving interviews.
+- A production deployment row is not proof that a specific session is using it.
+  Only sessions created with `workflow_id` carry the pinned deployment ID.
+- Shared API-key access means live workflow selection is not tenant-isolated.
 
 ## Tests
 
@@ -221,4 +266,8 @@ must not write call state; the gateway remains its sole writer.
   disabled-workflow blocking behavior.
 - `tests/test_workflow_store.py`: concurrent version allocation and
   idempotency.
+- `tests/test_workflow_routing.py`: route resolution, binding/hash failures,
+  snapshot validation, and agent pinning.
+- `tests/test_session_routing.py`: direct and channel API routing, error
+  mapping, pinned reports/priorities/review, and pin stability after promotion.
 - `tests/test_auth.py`: principals map and role parsing.

@@ -22,12 +22,15 @@ simplifies the full product spec (and why).
 > [`docs/CALL_STATE.md`](CALL_STATE.md) and
 > [`docs/adr/0005-rust-owned-call-state.md`](adr/0005-rust-owned-call-state.md).
 >
-> **2026-10-26 workflow update:** ai-service now exposes a user-owned workflow
+> **2026-10-28 workflow update:** ai-service exposes a user-owned workflow
 > artifact lifecycle: immutable content-hashed versions, a fixed mock sandbox,
 > mandatory deterministic suites, separated approval, exact-hash production
-> promotion, deployment failure history, and binding-aware rollback. This is a
-> deployment registry; live candidate sessions do not yet consume an active
-> workflow deployment. See [`docs/WORKFLOWS.md`](WORKFLOWS.md).
+> promotion, deployment failure history, and binding-aware rollback. New direct
+> and channel sessions may optionally supply `workflow_id`; routing pins the
+> active production deployment and its template snapshot on the session, and
+> all session-scoped template lookups use that pin. Omitting `workflow_id`
+> preserves the legacy `template_id` path. See
+> [`docs/WORKFLOWS.md`](WORKFLOWS.md).
 
 ## Layers
 
@@ -84,8 +87,8 @@ ai-service/ (Python, FastAPI, uv-managed)
    - resume.py — a single seeded resume claim (see "Not implemented"
      below — there's no real resume upload/parser yet).
    - db.py — SQLite, the system of record for sessions, transcript
-     segments, evidence, and the workflow lifecycle registry. State lives
-     here, not just inside an LLM's context window.
+     segments, evidence, the workflow lifecycle registry, and per-session
+     workflow pins. State lives here, not just inside an LLM's context window.
    - workflow_*.py — immutable workflow artifacts, sandbox suites,
      approvals, exact-hash promotion, deployment history, and rollback.
    - main.py — FastAPI routes tying it together, plus a read-only
@@ -367,7 +370,9 @@ means.
   turn limits, and prompts. The default RAG template preserves the existing
   demo prompt.
 - `sessions.template_id` is persisted and migrated in place for existing SQLite
-  databases.
+  databases. Workflow-routed sessions additionally persist `workflow_id`,
+  `workflow_version`, `workflow_content_hash`, `workflow_deployment_id`, and
+  `template_snapshot_json`; legacy sessions leave those fields null.
 - `GET /sessions/{id}/report` maps each rubric node to persisted transcript
   turns, returns the candidate quote plus the model-written note explicitly
   flagged as inference, and exposes coverage/uncertainty, recruiter priorities,

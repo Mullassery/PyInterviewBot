@@ -25,11 +25,31 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
 - Replaced dynamic SQL identifier interpolation with fixed statements and
   allowlisted values; fixed the interview-metadata insert placeholder mismatch
   and removed a duplicate reader.
-- 41 new Python tests; full ai-service suite is now 99 passed. New workflow files
-  pass Ruff; 27 pre-existing repository-wide Ruff violations remain.
-- Documented the lifecycle, API, configuration, security model, and explicit
-  limitation that live sessions do not yet route to active deployments in
+- 41 new Python tests at the workflow-artifact stage. New workflow files pass
+  Ruff; 27 pre-existing repository-wide Ruff violations remain.
+- Documented the lifecycle, API, configuration, and security model in
   [`docs/WORKFLOWS.md`](docs/WORKFLOWS.md).
+
+### Added (live workflow routing)
+
+- Optional `workflow_id` on direct and channel session creation. Supplied IDs
+  resolve to an active production deployment and are pinned on the session;
+  omitted IDs preserve the legacy `template_id` path.
+- Session rows persist workflow ID, version, content hash, deployment ID, and
+  template snapshot. Agent turns, reports, report exports, priorities, and
+  evidence review use the shared pinned-snapshot resolver.
+- Routing fails closed on unknown/disabled workflows, missing active
+  deployments, missing or changed production bindings, missing versions, and
+  deployment/content-hash mismatches.
+- In-flight sessions keep their original pin across promotion, rollback,
+  disablement, and built-in template changes.
+- Gateway forwards optional `PYINTERVIEWBOT_WORKFLOW_ID` on direct and channel
+  starts.
+- 26 new routing tests; full ai-service suite is now 125 passed. Rust workspace
+  tests pass and clippy is clean.
+- Reran the security audit: no high/medium source findings, earlier SQL
+  findings not reproducible, and refreshed `certifi`/`filelock` to clear five
+  dependency advisories.
 
 ### Changed (dependency policy)
 

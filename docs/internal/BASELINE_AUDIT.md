@@ -119,6 +119,38 @@ single-active-deployment enforcement, artifact hash verification on read,
 AI-service review/delete/export audit events, and migration behavior. Workflow state is stored in the ai-service interview SQLite
 database, separate from the Rust-owned call-state database.
 
-Not verified: live candidate-session routing to an active workflow deployment,
-operator UI/CLI, workflow evidence retention/cleanup, and production provider
-execution. See [`docs/WORKFLOWS.md`](../WORKFLOWS.md).
+Not verified then: operator UI/CLI, workflow evidence retention/cleanup, and
+production provider execution. Live candidate-session routing landed on
+2026-10-28 (below). See [`docs/WORKFLOWS.md`](../WORKFLOWS.md).
+
+## 2026-10-28 live workflow routing
+
+New direct and channel sessions may supply `workflow_id`. The route is resolved
+against an active production deployment, validated against the current binding
+fingerprint and content hashes, and pinned to the session before insertion.
+Turns, reports, exports, priorities, and review use the pinned snapshot. Legacy
+sessions keep the `template_id` path.
+
+Commands run from the repository root unless noted:
+
+| Command | Result |
+|---|---|
+| `uv run --group dev python -m pytest -q` (from `ai-service`) | **125 passed**, 2 dependency deprecation warnings |
+| `uv run --group dev ruff check .` (from `ai-service`) | **not clean**: 27 pre-existing violations |
+| `cargo test --workspace` | **102 passed** (57 gateway + 13 interview-domain + 32 voice-runtime) |
+| `cargo clippy --workspace --all-targets -- -D warnings` | pass |
+| `uvx bandit -r src -f txt` (from `ai-service`) | 1 Low false positive; 0 Medium/High |
+| `uv run --with pip-audit pip-audit` (from `ai-service`) | clean after refreshing `certifi` and `filelock` |
+| `cargo audit` | 304 crates scanned; no vulnerabilities |
+
+Verified behavior: opt-in workflow precedence over `template_id`; fail-closed
+routing errors (`404` unknown, `409` unavailable/stale/mismatched); pinned
+snapshot across promotion; legacy fallback only for old report/export sessions;
+channel resume keeps the original pin; gateway forwards
+`PYINTERVIEWBOT_WORKFLOW_ID`; routed starts do not log template bodies,
+transcripts, credentials, or binding fingerprints. See
+[`docs/SECURITY_AUDIT.md`](../SECURITY_AUDIT.md).
+
+Remaining gaps: shared-key workflow selection without tenant isolation,
+session-creation audit rows, operator UI/CLI, and live production provider
+execution.
