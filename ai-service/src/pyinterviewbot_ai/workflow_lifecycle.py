@@ -148,6 +148,21 @@ def _deployment_idempotency_key(operation: str, key: str | None) -> str | None:
     return f"{operation}:{key}" if key is not None else None
 
 
+async def get_active_production_deployment(
+    workflow_id: UUID,
+) -> DeploymentRecord | None:
+    async with db.connect() as conn:
+        conn.row_factory = aiosqlite.Row
+        cursor = await conn.execute(
+            "SELECT * FROM workflow_deployments "
+            "WHERE workflow_id = ? AND environment = 'production' "
+            "AND status = 'active' ORDER BY created_at DESC LIMIT 1",
+            (str(workflow_id),),
+        )
+        row = await cursor.fetchone()
+        return _deployment(row) if row is not None else None
+
+
 async def _ensure_active_workflow(
     conn: aiosqlite.Connection, workflow_id: UUID | str
 ) -> None:
