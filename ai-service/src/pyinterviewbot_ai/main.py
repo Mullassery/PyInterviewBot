@@ -25,6 +25,7 @@ from . import (
     workflow_routing,
 )
 from .auth import Principal, hash_session_token, require_auth, require_tenant_auth
+from .authz import authorized_session
 from .models import (
     ChannelMessageRequest,
     ChannelMessageResponse,
@@ -164,19 +165,14 @@ async def create_session(
     )
 
 
-@app.post(
-    "/sessions/{session_id}/turn",
-    response_model=TurnResponse,
-    dependencies=[Depends(require_auth)],
-)
+@app.post("/sessions/{session_id}/turn", response_model=TurnResponse)
 async def turn(
     session_id: UUID,
     req: TurnRequest,
+    principal: Annotated[Principal, Depends(require_tenant_auth)],
     x_session_token: str | None = Header(default=None),
 ) -> TurnResponse:
-    row = await db.get_session_row(session_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail=f"unknown session {session_id}")
+    row = await authorized_session(session_id, principal)
     stored_hash = (row["token_hash"] or "").strip()
     if x_session_token:
         if not stored_hash or not hmac.compare_digest(
@@ -232,7 +228,7 @@ async def channel_message(channel: str, req: ChannelMessageRequest) -> ChannelMe
 
 @app.get("/sessions", response_model=list[SessionListItem])
 async def list_sessions(
-    principal: Annotated[Principal, Depends(require_auth)],
+    principal: Annotated[Principal, Depends(require_tenant_auth)],
 ) -> list[SessionListItem]:
     return await db.list_sessions(
         owner_subject=principal.subject,
@@ -243,9 +239,10 @@ async def list_sessions(
 @app.delete("/sessions/{session_id}")
 async def delete_session(
     session_id: UUID,
-    principal: Annotated[Principal, Depends(require_auth)],
+    principal: Annotated[Principal, Depends(require_tenant_auth)],
 ) -> dict:
     """Delete a session and its transcript/evidence (retention)."""
+    row = await authorized_session(session_id, principal)
     deleted = await db.delete_session(
         session_id,
         owner_subject=principal.subject,
@@ -256,21 +253,19 @@ async def delete_session(
     await db.record_ai_audit(
         action="session.delete",
         actor_subject=principal.subject,
+        tenant_subject=row["owner_subject"],
         target_type="session",
         target_id=str(session_id),
     )
     return {"deleted": True, "session_id": str(session_id)}
 
 
-@app.get(
-    "/sessions/{session_id}/summary",
-    response_model=SessionSummary,
-    dependencies=[Depends(require_auth)],
-)
-async def summary(session_id: UUID) -> SessionSummary:
-    row = await db.get_session_row(session_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail=f"unknown session {session_id}")
+@app.get("/sessions/{session_id}/summary", response_model=SessionSummary)
+async def summary(
+    session_id: UUID,
+    principal: Annotated[Principal, Depends(require_tenant_auth)],
+) -> SessionSummary:
+    row = await authorized_session(session_id, principal)
     return SessionSummary(
         session_id=session_id,
         template_id=row["template_id"] or "rag_architect",
@@ -281,15 +276,12 @@ async def summary(session_id: UUID) -> SessionSummary:
     )
 
 
-@app.get(
-    "/sessions/{session_id}/report",
-    response_model=SessionReport,
-    dependencies=[Depends(require_auth)],
-)
-async def session_report(session_id: UUID) -> SessionReport:
-    row = await db.get_session_row(session_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail=f"unknown session {session_id}")
+@app.get("/sessions/{session_id}/report", response_model=SessionReport)
+async def session_report(
+    session_id: UUID,
+    principal: Annotated[Principal, Depends(require_tenant_auth)],
+) -> SessionReport:
+    row = await authorized_session(session_id, principal)
     try:
         template = workflow_routing.session_template(row)
     except ValueError:
@@ -308,18 +300,16 @@ async def session_report(session_id: UUID) -> SessionReport:
 @app.get("/sessions/{session_id}/report/export")
 async def export_report(
     session_id: UUID,
-    principal: Annotated[Principal, Depends(require_auth)],
+    principal: Annotated[Principal, Depends(require_tenant_auth)],
     format: str = Query(default="markdown"),
 ) -> Response:
+    row = await authorized_session(session_id, principal)
     key = format.strip().lower()
     if key not in reporting.RENDERERS:
         raise HTTPException(
             status_code=400,
             detail=f"unsupported format '{format}'; use markdown, html, csv, or json",
         )
-    row = await db.get_session_row(session_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail=f"unknown session {session_id}")
     try:
         template = workflow_routing.session_template(row)
     except ValueError:
@@ -348,6 +338,7 @@ async def export_report(
     await db.record_ai_audit(
         action="report.export",
         actor_subject=principal.subject,
+        tenant_subject=row["owner_subject"],
         target_type="session",
         target_id=str(session_id),
         details={"format": key},
@@ -381,40 +372,38 @@ def _compliance_response(rows: list[dict]) -> CompliancePolicyResponse:
 @app.get(
     "/sessions/{session_id}/resume-policy",
     response_model=ResumePolicyResponse,
-    dependencies=[Depends(require_auth)],
 )
-async def get_resume_policy(session_id: UUID) -> ResumePolicyResponse:
-    row = await db.get_session_row(session_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail=f"unknown session {session_id}")
+async def get_resume_policy(
+    session_id: UUID,
+    principal: Annotated[Principal, Depends(require_tenant_auth)],
+) -> ResumePolicyResponse:
+    row = await authorized_session(session_id, principal)
     return resume_policy.policy_for(row)
 
 
 @app.put(
     "/sessions/{session_id}/resume-policy",
     response_model=ResumePolicyResponse,
-    dependencies=[Depends(require_auth)],
 )
 async def set_resume_policy(
-    session_id: UUID, req: ResumePolicyRequest
+    session_id: UUID,
+    req: ResumePolicyRequest,
+    principal: Annotated[Principal, Depends(require_tenant_auth)],
 ) -> ResumePolicyResponse:
+    await authorized_session(session_id, principal)
     if not await db.set_resume_policy(session_id, req.enabled, req.window_minutes):
         raise HTTPException(status_code=404, detail=f"unknown session {session_id}")
-    row = await db.get_session_row(session_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail=f"unknown session {session_id}")
+    row = await authorized_session(session_id, principal)
     return resume_policy.policy_for(row)
 
 
-@app.post(
-    "/sessions/{session_id}/resume",
-    response_model=ResumeResponse,
-    dependencies=[Depends(require_auth)],
-)
+@app.post("/sessions/{session_id}/resume", response_model=ResumeResponse)
 async def resume_interview(
     session_id: UUID,
+    principal: Annotated[Principal, Depends(require_tenant_auth)],
     x_session_token: str | None = Header(default=None),
 ) -> ResumeResponse:
+    await authorized_session(session_id, principal)
     try:
         return await resume_policy.resume_session(session_id, x_session_token)
     except resume_policy.ResumeError as exc:
@@ -478,15 +467,12 @@ async def reset_compliance_policy() -> CompliancePolicyResponse:
     return _compliance_response(await db.list_compliance_categories())
 
 
-@app.get(
-    "/sessions/{session_id}/priorities",
-    response_model=PrioritiesResponse,
-    dependencies=[Depends(require_auth)],
-)
-async def get_priorities(session_id: UUID) -> PrioritiesResponse:
-    row = await db.get_session_row(session_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail=f"unknown session {session_id}")
+@app.get("/sessions/{session_id}/priorities", response_model=PrioritiesResponse)
+async def get_priorities(
+    session_id: UUID,
+    principal: Annotated[Principal, Depends(require_tenant_auth)],
+) -> PrioritiesResponse:
+    row = await authorized_session(session_id, principal)
     template = workflow_routing.session_template(row)
     stored = {item.node: item for item in await db.get_session_priorities(session_id)}
     priorities = [
@@ -500,14 +486,13 @@ async def get_priorities(session_id: UUID) -> PrioritiesResponse:
 @app.put(
     "/sessions/{session_id}/priorities",
     response_model=PrioritiesResponse,
-    dependencies=[Depends(require_auth)],
 )
 async def set_priorities(
-    session_id: UUID, req: PriorityUpdateRequest
+    session_id: UUID,
+    req: PriorityUpdateRequest,
+    principal: Annotated[Principal, Depends(require_tenant_auth)],
 ) -> PrioritiesResponse:
-    row = await db.get_session_row(session_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail=f"unknown session {session_id}")
+    row = await authorized_session(session_id, principal)
     template = workflow_routing.session_template(row)
     valid_nodes = {node.id for node in template.nodes}
     seen: set[str] = set()
@@ -533,11 +518,9 @@ async def set_priorities(
 async def review_evidence(
     session_id: UUID,
     req: ReviewRequest,
-    principal: Annotated[Principal, Depends(require_auth)],
+    principal: Annotated[Principal, Depends(require_tenant_auth)],
 ) -> dict:
-    row = await db.get_session_row(session_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail=f"unknown session {session_id}")
+    row = await authorized_session(session_id, principal)
     template = workflow_routing.session_template(row)
     if req.node not in {node.id for node in template.nodes}:
         raise HTTPException(status_code=400, detail=f"unknown evidence node {req.node}")
@@ -547,6 +530,7 @@ async def review_evidence(
     await db.record_ai_audit(
         action="session.review",
         actor_subject=principal.subject,
+        tenant_subject=row["owner_subject"],
         target_type="session",
         target_id=str(session_id),
         details={
