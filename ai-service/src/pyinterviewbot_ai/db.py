@@ -43,6 +43,26 @@ SESSION_COLUMN_MIGRATIONS = (
         "resume_count",
         "ALTER TABLE sessions ADD COLUMN resume_count INTEGER NOT NULL DEFAULT 0",
     ),
+    (
+        "workflow_id",
+        "ALTER TABLE sessions ADD COLUMN workflow_id TEXT",
+    ),
+    (
+        "workflow_version",
+        "ALTER TABLE sessions ADD COLUMN workflow_version INTEGER",
+    ),
+    (
+        "workflow_content_hash",
+        "ALTER TABLE sessions ADD COLUMN workflow_content_hash TEXT",
+    ),
+    (
+        "workflow_deployment_id",
+        "ALTER TABLE sessions ADD COLUMN workflow_deployment_id TEXT",
+    ),
+    (
+        "template_snapshot_json",
+        "ALTER TABLE sessions ADD COLUMN template_snapshot_json TEXT",
+    ),
 )
 
 SCHEMA = """
@@ -57,7 +77,12 @@ CREATE TABLE IF NOT EXISTS sessions (
     resume_deadline TEXT,
     resume_count INTEGER NOT NULL DEFAULT 0,
     turn_count INTEGER NOT NULL DEFAULT 0,
-    is_complete INTEGER NOT NULL DEFAULT 0
+    is_complete INTEGER NOT NULL DEFAULT 0,
+    workflow_id TEXT,
+    workflow_version INTEGER,
+    workflow_content_hash TEXT,
+    workflow_deployment_id TEXT,
+    template_snapshot_json TEXT
 );
 
 CREATE TABLE IF NOT EXISTS transcript_segments (
@@ -363,14 +388,22 @@ async def create_session(
     claim: ResumeClaim,
     template_id: str = "rag_architect",
     token_hash: str = "",
+    *,
+    workflow_id: str | None = None,
+    workflow_version: int | None = None,
+    workflow_content_hash: str | None = None,
+    workflow_deployment_id: str | None = None,
+    template_snapshot_json: str | None = None,
 ) -> None:
     async with connect() as db:
         now = datetime.now(UTC)
         await db.execute(
             "INSERT INTO sessions "
             "(id, created_at, resume_claim, template_id, token_hash, "
-            "resume_enabled, resume_window_minutes, resume_deadline) "
-            "VALUES (?, ?, ?, ?, ?, 1, 1440, ?)",
+            "resume_enabled, resume_window_minutes, resume_deadline, "
+            "workflow_id, workflow_version, workflow_content_hash, "
+            "workflow_deployment_id, template_snapshot_json) "
+            "VALUES (?, ?, ?, ?, ?, 1, 1440, ?, ?, ?, ?, ?, ?)",
             (
                 str(session_id),
                 now.isoformat(),
@@ -378,6 +411,11 @@ async def create_session(
                 template_id,
                 token_hash,
                 (now + timedelta(minutes=1440)).isoformat(),
+                workflow_id,
+                workflow_version,
+                workflow_content_hash,
+                workflow_deployment_id,
+                template_snapshot_json,
             ),
         )
         await db.commit()
