@@ -61,6 +61,9 @@ async fn main() {
     let template_id = std::env::var("PYINTERVIEWBOT_TEMPLATE")
         .ok()
         .filter(|value| !value.is_empty());
+    let workflow_id = std::env::var("PYINTERVIEWBOT_WORKFLOW_ID")
+        .ok()
+        .filter(|value| !value.is_empty());
     let session_config = SessionConfig {
         silence_ms: env_u32("GATEWAY_VAD_SILENCE_MS", DEFAULT_SILENCE_MS_TO_END_TURN),
         max_utterance_bytes: env_usize("GATEWAY_MAX_UTTERANCE_BYTES", DEFAULT_MAX_UTTERANCE_BYTES),
@@ -153,7 +156,8 @@ async fn main() {
     let state = AppState {
         ai: AiClient::new(ai_service_url.clone())
             .with_api_key(ai_service_api_key)
-            .with_template(template_id),
+            .with_template(template_id)
+            .with_workflow(workflow_id),
         api_key: std::env::var("GATEWAY_API_KEY")
             .ok()
             .filter(|k| !k.is_empty()),

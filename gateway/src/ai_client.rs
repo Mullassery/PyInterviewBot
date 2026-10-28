@@ -42,6 +42,7 @@ pub struct AiClient {
     base_url: String,
     api_key: Option<String>,
     template_id: Option<String>,
+    workflow_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -49,6 +50,8 @@ struct StartSessionRequest {
     resume_seed: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     template_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workflow_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -101,6 +104,8 @@ pub struct ChannelMessageResponse {
 struct ChannelSessionRequest {
     external_id: String,
     template_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workflow_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -126,6 +131,11 @@ impl AiClient {
         self
     }
 
+    pub fn with_workflow(mut self, workflow_id: Option<String>) -> Self {
+        self.workflow_id = workflow_id;
+        self
+    }
+
     /// Split out from `new` so tests can use a short timeout instead of
     /// waiting out the real `AI_SERVICE_TIMEOUT` against a deliberately
     /// unresponsive server.
@@ -138,6 +148,7 @@ impl AiClient {
             base_url: base_url.into(),
             api_key: None,
             template_id: None,
+            workflow_id: None,
         }
     }
 
@@ -157,6 +168,7 @@ impl AiClient {
             .json(&StartSessionRequest {
                 resume_seed: true,
                 template_id: self.template_id.clone(),
+                workflow_id: self.workflow_id.clone(),
             })
             .send()
             .await?;
@@ -177,6 +189,7 @@ impl AiClient {
             .json(&ChannelSessionRequest {
                 external_id: external_id.to_string(),
                 template_id: template_id.map(str::to_string),
+                workflow_id: self.workflow_id.clone(),
             })
             .send()
             .await?;
@@ -340,7 +353,10 @@ mod tests {
 
         let client = AiClient::new(format!("http://{addr}"))
             .with_api_key(Some("secret".to_string()))
-            .with_template(Some("backend_engineer".to_string()));
+            .with_template(Some("backend_engineer".to_string()))
+            .with_workflow(Some(
+                "00000000-0000-0000-0000-000000000002".to_string(),
+            ));
         let started = client.start_session().await.unwrap();
         assert_eq!(started.question_text, "hello");
         assert_eq!(started.session_token.as_deref(), Some("session-token"));
@@ -348,7 +364,54 @@ mod tests {
         let (key, body) = captured.lock().unwrap().clone().expect("request captured");
         assert_eq!(key.as_deref(), Some("secret"));
         assert_eq!(body["template_id"], "backend_engineer");
+        assert_eq!(body["workflow_id"], "00000000-0000-0000-0000-000000000002");
         assert_eq!(body["resume_seed"], true);
+    }
+
+    #[tokio::test]
+    async fn channel_start_forwards_template_and_workflow() {
+        use axum::{extract::State, routing::post, Json, Router};
+        use std::sync::{Arc, Mutex};
+
+        type Captured = Arc<Mutex<Option<serde_json::Value>>>;
+        let captured: Captured = Arc::new(Mutex::new(None));
+
+        async fn handler(
+            State(captured): State<Captured>,
+            body: String,
+        ) -> Json<serde_json::Value> {
+            let parsed = serde_json::from_str(&body).unwrap_or(serde_json::Value::Null);
+            *captured.lock().unwrap() = Some(parsed);
+            Json(serde_json::json!({
+                "session_id": "00000000-0000-0000-0000-000000000001",
+                "question_text": "hello",
+                "template_id": "backend_engineer"
+            }))
+        }
+
+        let app = Router::new()
+            .route("/channels/web/sessions", post(handler))
+            .with_state(captured.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let client = AiClient::new(format!("http://{addr}"))
+            .with_template(Some("backend_engineer".to_string()))
+            .with_workflow(Some(
+                "00000000-0000-0000-0000-000000000002".to_string(),
+            ));
+        let started = client
+            .start_channel_session("web", "candidate-1", Some("backend_engineer"))
+            .await
+            .unwrap();
+        assert_eq!(started.question_text, "hello");
+
+        let body = captured.lock().unwrap().clone().expect("request captured");
+        assert_eq!(body["template_id"], "backend_engineer");
+        assert_eq!(body["workflow_id"], "00000000-0000-0000-0000-000000000002");
     }
 
     #[tokio::test]
