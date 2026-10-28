@@ -3,7 +3,7 @@ from uuid import UUID, uuid4
 
 import aiosqlite
 import pytest
-from pyinterviewbot_ai import db, workflow_store
+from pyinterviewbot_ai import agent, db, workflow_store
 from pyinterviewbot_ai import workflow_routing as routing
 from pyinterviewbot_ai.providers.base import EvidenceNodeSpec
 from pyinterviewbot_ai.templates import InterviewTemplate, get_template
@@ -62,6 +62,55 @@ async def _active_route(monkeypatch) -> tuple[UUID, WorkflowVersionRecord, str]:
     workflow_id, version = await _published_workflow(monkeypatch)
     deployment_id = await _insert_deployment(workflow_id, version)
     return workflow_id, version, deployment_id
+
+
+async def test_start_session_with_workflow_pins_snapshot(monkeypatch) -> None:
+    workflow_id, version, deployment_id = await _active_route(monkeypatch)
+
+    result = await agent.start_session("ignored_template", workflow_id)
+
+    row = await db.get_session_row(result.session_id)
+    assert result.template_id == "backend_engineer"
+    assert result.workflow_id == workflow_id
+    assert result.workflow_version == 1
+    assert result.workflow_deployment_id == deployment_id
+    assert row["workflow_id"] == str(workflow_id)
+    assert row["workflow_version"] == 1
+    assert row["workflow_content_hash"] == version.content_hash
+    assert row["workflow_deployment_id"] == deployment_id
+    assert row["template_snapshot_json"] is not None
+    assert row["template_snapshot_json"] != ""
+
+
+async def test_take_turn_uses_pinned_snapshot_after_template_removal(monkeypatch) -> None:
+    workflow_id, _, _ = await _active_route(monkeypatch)
+    result = await agent.start_session("ignored_template", workflow_id)
+    async with db.connect() as conn:
+        await conn.execute(
+            "UPDATE sessions SET template_id = 'removed_template' WHERE id = ?",
+            (str(result.session_id),),
+        )
+        await conn.commit()
+
+    response = await agent.take_turn(result.session_id, "I built a retrying queue.")
+
+    assert response.ai_text
+    assert isinstance(response.is_complete, bool)
+
+
+async def test_start_session_without_workflow_keeps_legacy_template(monkeypatch) -> None:
+    monkeypatch.setenv(PRODUCTION_REVISION_ENV, "prod-test-1")
+    await db.init_db()
+
+    result = await agent.start_session("backend_engineer")
+
+    row = await db.get_session_row(result.session_id)
+    assert result.template_id == "backend_engineer"
+    assert result.workflow_id is None
+    assert result.workflow_version is None
+    assert result.workflow_deployment_id is None
+    assert row["workflow_id"] is None
+    assert row["template_snapshot_json"] is None
 
 
 async def test_resolve_active_route_returns_pinned_backend_template(monkeypatch) -> None:

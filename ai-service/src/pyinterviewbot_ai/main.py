@@ -143,16 +143,14 @@ async def health() -> dict[str, str]:
 )
 async def create_session(req: StartSessionRequest) -> StartSessionResponse:
     try:
-        session_id, question_text, template_id, session_token = await agent.start_session(
-            req.template_id
-        )
+        result = await agent.start_session(req.template_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return StartSessionResponse(
-        session_id=session_id,
-        question_text=question_text,
-        template_id=template_id,
-        session_token=session_token,
+        session_id=result.session_id,
+        question_text=result.question_text,
+        template_id=result.template_id,
+        session_token=result.session_token,
     )
 
 

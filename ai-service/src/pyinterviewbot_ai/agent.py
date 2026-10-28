@@ -10,9 +10,11 @@ from __future__ import annotations
 import logging
 import os
 import secrets
+from dataclasses import dataclass
 from uuid import UUID, uuid4
 
 from . import db
+from . import workflow_routing as routing
 from .auth import hash_session_token
 from .compliance import (
     SAFE_FALLBACK_QUESTIONS,
@@ -38,6 +40,19 @@ FALLBACK_CLOSING_REMARK = (
     "That's a great place to stop — thank you for walking me through all of that in such detail."
 )
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class SessionStartResult:
+    """The identity and pinned routing metadata for a new interview session."""
+
+    session_id: UUID
+    question_text: str
+    template_id: str
+    session_token: str
+    workflow_id: UUID | None
+    workflow_version: int | None
+    workflow_deployment_id: str | None
 
 
 def _safe_question(
@@ -157,8 +172,14 @@ async def _load_graph(session_id: UUID, template: InterviewTemplate) -> Evidence
 
 async def start_session(
     template_id: str | None = None,
-) -> tuple[UUID, str, str, str]:
-    template = get_template(template_id)
+    workflow_id: UUID | None = None,
+) -> SessionStartResult:
+    route = (
+        await routing.resolve_workflow_route(workflow_id)
+        if workflow_id is not None
+        else None
+    )
+    template = route.template if route is not None else get_template(template_id)
     session_id = uuid4()
     claim = seed_claim(template.competency)
     session_token = secrets.token_urlsafe(32)
@@ -167,7 +188,23 @@ async def start_session(
         claim,
         template.id,
         token_hash=hash_session_token(session_token),
+        workflow_id=str(route.workflow_id) if route is not None else None,
+        workflow_version=route.version if route is not None else None,
+        workflow_content_hash=route.content_hash if route is not None else None,
+        workflow_deployment_id=route.deployment_id if route is not None else None,
+        template_snapshot_json=(
+            route.template_snapshot_json if route is not None else None
+        ),
     )
+    if route is not None:
+        logger.info(
+            "routed session to workflow workflow_id=%s version=%s "
+            "content_hash=%s deployment_id=%s",
+            route.workflow_id,
+            route.version,
+            route.content_hash,
+            route.deployment_id,
+        )
 
     graph = EvidenceGraphState(node_specs=_node_specs(template))
     planner = get_language_model()
@@ -183,7 +220,15 @@ async def start_session(
     await db.append_transcript(session_id, 0, "ai", opening)
     await db.set_turn_count(session_id, 0)
 
-    return session_id, opening, template.id, session_token
+    return SessionStartResult(
+        session_id=session_id,
+        question_text=opening,
+        template_id=template.id,
+        session_token=session_token,
+        workflow_id=route.workflow_id if route is not None else None,
+        workflow_version=route.version if route is not None else None,
+        workflow_deployment_id=route.deployment_id if route is not None else None,
+    )
 
 
 async def take_turn(session_id: UUID, transcript: str) -> TurnResponse:
@@ -191,7 +236,7 @@ async def take_turn(session_id: UUID, transcript: str) -> TurnResponse:
     if row is None:
         raise ValueError(f"unknown session {session_id}")
 
-    template = get_template(row["template_id"] or DEFAULT_TEMPLATE_ID)
+    template = routing.session_template(row)
     turn_number = row["turn_count"] + 1
     claim_text = row["resume_claim"]
 

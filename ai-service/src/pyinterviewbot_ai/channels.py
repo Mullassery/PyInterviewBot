@@ -72,7 +72,9 @@ async def start_or_resume(
             new_session=False,
         )
 
-    session_id, _question, template, _token = await agent.start_session(template_id)
+    result = await agent.start_session(template_id)
+    session_id = result.session_id
+    template = result.template_id
     if not await db.bind_channel_session(channel, external_id, session_id):
         await db.delete_session(session_id)
         existing = await db.get_channel_session(channel, external_id)
