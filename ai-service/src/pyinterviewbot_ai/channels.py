@@ -55,6 +55,7 @@ async def start_or_resume(
     channel: str,
     external_id: str,
     template_id: str | None,
+    workflow_id: UUID | None = None,
 ) -> ChannelSessionResponse:
     validate_channel(channel)
     existing = await db.get_channel_session(channel, external_id)
@@ -70,9 +71,12 @@ async def start_or_resume(
             template_id=row["template_id"] or "rag_architect",
             question_text=await _last_question(session_id),
             new_session=False,
+            workflow_id=row["workflow_id"],
+            workflow_version=row["workflow_version"],
+            workflow_deployment_id=row["workflow_deployment_id"],
         )
 
-    result = await agent.start_session(template_id)
+    result = await agent.start_session(template_id, workflow_id)
     session_id = result.session_id
     template = result.template_id
     if not await db.bind_channel_session(channel, external_id, session_id):
@@ -91,6 +95,9 @@ async def start_or_resume(
         template_id=template,
         question_text=await _last_question(session_id),
         new_session=True,
+        workflow_id=result.workflow_id,
+        workflow_version=result.workflow_version,
+        workflow_deployment_id=result.workflow_deployment_id,
     )
 
 

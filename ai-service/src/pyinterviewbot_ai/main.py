@@ -194,7 +194,11 @@ async def turn(
 )
 async def channel_session(channel: str, req: ChannelSessionRequest) -> ChannelSessionResponse:
     try:
-        return await channels.start_or_resume(channel, req.external_id, req.template_id)
+        return await channels.start_or_resume(
+            channel, req.external_id, req.template_id, req.workflow_id
+        )
+    except workflow_routing.WorkflowRoutingError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except channels.ChannelError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 

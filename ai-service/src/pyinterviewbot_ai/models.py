@@ -184,6 +184,7 @@ class SessionReport(BaseModel):
 class ChannelSessionRequest(BaseModel):
     external_id: str = Field(min_length=1, max_length=256)
     template_id: str | None = None
+    workflow_id: UUID | None = None
 
 
 class ChannelSessionResponse(BaseModel):
@@ -193,6 +194,9 @@ class ChannelSessionResponse(BaseModel):
     template_id: str
     question_text: str
     new_session: bool = False
+    workflow_id: UUID | None = None
+    workflow_version: int | None = None
+    workflow_deployment_id: str | None = None
 
 
 class ChannelMessageRequest(BaseModel):

@@ -263,6 +263,58 @@ async def test_pinned_snapshot_drives_report_export_priorities_and_review(
     assert review.status_code == 200, review.text
 
 
+def test_channel_session_routes_to_workflow(client, workflow_auth) -> None:
+    workflow_id = _create_workflow(client, workflow_auth["alice"])
+    deployment = _fully_promote(client, workflow_auth, workflow_id)
+
+    response = client.post(
+        "/channels/web/sessions",
+        json={"external_id": "candidate-1", "workflow_id": workflow_id},
+        headers={"X-API-Key": "test-key"},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["template_id"] == "backend_engineer"
+    assert body["workflow_id"] == workflow_id
+    assert body["workflow_version"] == 1
+    assert body["workflow_deployment_id"] == deployment["deployment_id"]
+
+
+def test_channel_unknown_workflow_is_404(client, workflow_auth) -> None:
+    response = client.post(
+        "/channels/web/sessions",
+        json={"external_id": "candidate-unknown", "workflow_id": str(uuid4())},
+        headers={"X-API-Key": "test-key"},
+    )
+
+    assert response.status_code == 404
+
+
+def test_resuming_channel_session_keeps_original_pin(
+    client, workflow_auth
+) -> None:
+    workflow_id = _create_workflow(client, workflow_auth["alice"])
+    _fully_promote(client, workflow_auth, workflow_id)
+    first = client.post(
+        "/channels/web/sessions",
+        json={"external_id": "candidate-2", "workflow_id": workflow_id},
+        headers={"X-API-Key": "test-key"},
+    )
+    assert first.status_code == 200, first.text
+
+    second = client.post(
+        "/channels/web/sessions",
+        json={"external_id": "candidate-2", "workflow_id": str(uuid4())},
+        headers={"X-API-Key": "test-key"},
+    )
+
+    assert second.status_code == 200, second.text
+    assert second.json()["workflow_id"] == workflow_id
+    assert second.json()["template_id"] == "backend_engineer"
+    assert second.json()["workflow_version"] == 1
+
+
 @pytest.mark.asyncio
 async def test_promotion_after_session_creation_does_not_change_pin(
     client, workflow_auth
