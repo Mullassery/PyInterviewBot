@@ -35,12 +35,12 @@ def test_production_binding_rejects_an_unknown_provider(monkeypatch) -> None:
 
 def test_production_binding_fingerprint_tracks_revision_and_providers(monkeypatch) -> None:
     monkeypatch.setenv("PYINTERVIEWBOT_PRODUCTION_BINDING_REVISION", "prod-2026-10")
-    monkeypatch.setenv("PYINTERVIEWBOT_LLM_PROVIDER", "openrouter")
+    monkeypatch.setenv("PYINTERVIEWBOT_LLM_PROVIDER", "voxora")
     monkeypatch.setenv("PYINTERVIEWBOT_ASR_PROVIDER", "local")
     monkeypatch.setenv("PYINTERVIEWBOT_TTS_PROVIDER", "local")
     first = production_binding()
 
-    monkeypatch.setenv("PYINTERVIEWBOT_ASR_PROVIDER", "openrouter")
+    monkeypatch.setenv("PYINTERVIEWBOT_LLM_PROVIDER", "mock")
     second = production_binding()
     assert first.environment == "production"
     assert first.revision == "prod-2026-10"

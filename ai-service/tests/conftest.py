@@ -54,10 +54,10 @@ def mock_llm_provider(monkeypatch):
 
 
 @pytest.fixture
-def openrouter_env(monkeypatch):
-    monkeypatch.setenv("PYINTERVIEWBOT_LLM_PROVIDER", "openrouter")
-    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    monkeypatch.setenv("OPENROUTER_MODEL", "anthropic/claude-3.5-sonnet")
+def voxora_env(monkeypatch):
+    monkeypatch.setenv("PYINTERVIEWBOT_LLM_PROVIDER", "voxora")
+    monkeypatch.setenv("VOXORA_BASE_URL", "https://voxora.test")
+    monkeypatch.setenv("VOXORA_API_KEY", "test-key")
     providers.reset_providers()
     yield
     providers.reset_providers()

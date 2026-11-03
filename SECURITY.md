@@ -15,11 +15,13 @@ policy. Security fixes land on `main` only.
 ## Local by default; optional provider credentials
 
 ASR (faster-whisper), the LLM (Ollama), and TTS (Piper) all run locally and
-need no cloud credentials. The optional OpenRouter provider reads
-`OPENROUTER_API_KEY`; managed-call integration reads `MANAGED_CALL_API_KEY`
+need no cloud credentials. OpenRouter connectivity, model routing, and cloud
+keys live in Voxora Studio; PyInterviewBot only holds
+`VOXORA_BASE_URL`/`VOXORA_API_KEY` when integrated (and reads them only from
+the environment). Managed-call integration reads `MANAGED_CALL_API_KEY`
 and its webhook secret. These keys are opt-in, read only from the
 environment or a secrets manager, and must never be hardcoded, committed,
-or sent to browser code. Selecting a cloud provider adds that provider as a
+or sent to browser code. Selecting an integrated Voxora adds Voxora as a
 trust boundary.
 
 ## Known, current security gaps (not hypothetical — verified in code)

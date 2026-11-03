@@ -6,6 +6,18 @@ pre-1.0 and does not yet follow Semantic Versioning strictly.
 
 ## [Unreleased]
 
+### Changed (Voxora ecosystem redirect)
+
+- LLM decisions now route through Voxora Studio (`POST /api/v1/ai/decide`)
+  via the new `PYINTERVIEWBOT_LLM_PROVIDER=voxora`; Voxora owns OpenRouter
+  connectivity, model routing, and usage billing. See `docs/migration.md`.
+- Removed `providers/openrouter.py` and its tests after the replacement was
+  contract-tested; `openrouter` provider selection now fails closed with a
+  migration pointer, and ASR/TTS provider choices are `local`/`mock` only
+  (speech happens inside Voxora voice sessions).
+- Added `voxora_client.py` + `tests/test_voxora_client.py` pinning the
+  ADR `voice-sessions` and `ai/decide` payload shapes.
+
 ## [0.1.3] - 2026-10-28
 
 ### Added (tenant isolation)

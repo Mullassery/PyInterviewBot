@@ -22,7 +22,7 @@ distribution or commercial use.
 | Telephony / WebRTC | No (transport-independent core) | No (raw WebSocket PCM16) |
 | Offline / no account | Yes | Yes (after models installed) |
 | Status in this repo | Implemented; mock and local neural paths tested | Working, tested |
-| Cloud AI option | OpenRouter LLM live-checked (free model); OpenRouter TTS/STT contract-tested but not live-verified | Local/mock remain default |
+Migrated to Voxora for LLM routing in the project. This is done via `voxora` LLM provider / ai-decide contract tests (live Voxora not yet verified); local/mock untouched |
 | Cost | Infrastructure only | Infrastructure only |
 
 ## Decision

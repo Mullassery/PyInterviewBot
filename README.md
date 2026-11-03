@@ -281,33 +281,28 @@ PYINTERVIEWBOT_ASR_PROVIDER=local
 PYINTERVIEWBOT_TTS_PROVIDER=local
 PYINTERVIEWBOT_LLM_PROVIDER=local
 
-# Optional OpenRouter cloud AI (same key for questions and voice; model IDs explicit)
-PYINTERVIEWBOT_LLM_PROVIDER=openrouter
-OPENROUTER_API_KEY=...
-OPENROUTER_MODEL=anthropic/claude-3.5-sonnet  # any OpenRouter model id
-# optional speech providers using the same key:
-PYINTERVIEWBOT_ASR_PROVIDER=openrouter
-OPENROUTER_STT_MODEL=openai/whisper-1
-PYINTERVIEWBOT_TTS_PROVIDER=openrouter
-OPENROUTER_TTS_MODEL=openai/gpt-4o-mini-tts
-OPENROUTER_TTS_VOICE=alloy
-OPENROUTER_TTS_SOURCE_SAMPLE_RATE=24000
-# optional: OPENROUTER_BASE_URL, OPENROUTER_TIMEOUT_SECONDS,
-#           OPENROUTER_MAX_RETRIES, OPENROUTER_RESPONSE_FORMAT,
-#           OPENROUTER_SITE_URL, OPENROUTER_APP_NAME
+# Route interview LLM decisions through Voxora Studio (ADR-3D-LLM)
+PYINTERVIEWBOT_LLM_PROVIDER=voxora
+VOXORA_BASE_URL=https://voxora.example.com
+VOXORA_API_KEY=...                # Voxora service-scoped key (never shared)
+# optional: VOXORA_TIMEOUT_SECONDS, VOXORA_MAX_RETRIES,
+#           PYINTERVIEWBOT_VOXORA_MODEL_PROFILE
 
+# Or run fully standalone (no Voxora): templates + simulations offline
+PYINTERVIEWBOT_LLM_PROVIDER=mock      # CI / demo
 ```
 
-`GET /providers` (authenticated) reports configured providers, capabilities,
-and health. `OPENROUTER_MODEL` accepts any model id OpenRouter offers
-(OpenAI, Anthropic, Google, Meta, Mistral, Qwen, DeepSeek, and others). Changing
-the model is an explicit configuration change followed by a service restart;
-`/providers` exposes the active model id. Models without structured-output support are retried once without
-`response_format`; non-conforming action names are normalized to the supported
-enum so non-OpenAI models can be used. OpenRouter is a cloud dependency: prompts and audio leave the machine when it
-is selected. A live free-model LLM check has passed; speech models and
-production model availability/latency remain unverified. Review OpenRouter's
-data-processing and model terms in the dashboard before enabling it. Keep `OPENROUTER_API_KEY` server-side. The self-hosted Rust voice runtime lives in `voice-runtime/` and is
+### Ecosystem boundary (no duplication)
+
+Telephony (Twilio), the voice-session runtime, and OpenRouter/model routing
+live in [Voxora Studio](https://github.com/Mullassery/Voxora-Studio) and are
+reached **only** through its documented HTTP contracts (never imports):
+`VoxoraClient` covers `/api/v1/ai/decide` (LLM), `/api/v1/voice-sessions`
+(create/get/terminate/transcript/instructions) - see `ai-service/src/pyinterviewbot_ai/voxora_client.py`
+and `ai-service/tests/test_voxora_client.py`. The in-repo OpenRouter module
+was removed after the Voxora redirect (see `docs/migration.md` for the
+extraction record and rollback notes). `GET /providers` (authenticated)
+reports configured providers, capabilities, and health in standalone modes. The self-hosted Rust voice runtime lives in `voice-runtime/` and is
 built/tested with the workspace. The managed-call workflow is optional and is
 never required—see [`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MATRIX.md).
 

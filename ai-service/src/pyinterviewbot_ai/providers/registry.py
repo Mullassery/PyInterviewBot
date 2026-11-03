@@ -2,7 +2,7 @@
 
 Selection is explicit and provider-neutral: ``PYINTERVIEWBOT_ASR_PROVIDER``,
 ``PYINTERVIEWBOT_TTS_PROVIDER``, and ``PYINTERVIEWBOT_LLM_PROVIDER`` accept
-``local``, ``mock``, or ``openrouter`` (LLM only). Unknown values fail closed
+``local``, ``mock``, or ``voxora`` (LLM only). Unknown values fail closed
 with a clear error instead of silently falling back.
 """
 
@@ -28,10 +28,20 @@ _ENV_BY_KIND = {
 }
 
 _KNOWN_PROVIDERS = {
-    "asr": frozenset({"local", "mock", "openrouter"}),
-    "tts": frozenset({"local", "mock", "openrouter"}),
-    "llm": frozenset({"local", "mock", "openrouter"}),
+    "asr": frozenset({"local", "mock"}),
+    "tts": frozenset({"local", "mock"}),
+    "llm": frozenset({"local", "mock", "voxora"}),
 }
+
+# Archived after the ecosystem migration: Voxora Studio owns OpenRouter
+# connectivity, model routing and billing (see docs/migration.md).
+_REMOVED_PROVIDERS = {
+}
+
+_MIGRATION_POINTER = (
+    "OpenRouter was moved to Voxora Studio. Set PYINTERVIEWBOT_LLM_PROVIDER=voxora "
+    "and configure VOXORA_BASE_URL/VOXORA_API_KEY."
+)
 
 
 def provider_is_known(kind: str, provider: str) -> bool:
@@ -61,21 +71,19 @@ def _build(kind: str, provider: str) -> Any:
             "tts": LocalTextToSpeech,
             "llm": LocalLanguageModel,
         }[kind]()
-    if provider == "openrouter" and kind == "llm":
-        from .openrouter import OpenRouterLanguageModel
+    if provider == "voxora" and kind == "llm":
+        from .voxora import VoxoraLanguageModel
 
-        return OpenRouterLanguageModel()
-    if provider == "openrouter" and kind == "asr":
-        from .openrouter import OpenRouterSpeechToText
-
-        return OpenRouterSpeechToText()
-    if provider == "openrouter" and kind == "tts":
-        from .openrouter import OpenRouterTextToSpeech
-
-        return OpenRouterTextToSpeech()
-    raise ValueError(
-        f"unknown {kind} provider '{provider}'; expected local, mock, or openrouter"
-    )
+        return VoxoraLanguageModel()
+    if provider == "voxora" and kind in {"asr", "tts"}:
+        raise ValueError(
+            "voxora handles speech inside its voice sessions; PyInterviewBot consumes "
+            "transcripts. Use 'local' or 'mock' for PYINTERVIEWBOT_"
+            f"{kind.upper()}_PROVIDER."
+        )
+    if provider == "openrouter":
+        raise ValueError(_MIGRATION_POINTER)
+    raise ValueError(f"unknown {kind} provider '{provider}'; expected local, mock, or voxora")
 
 
 def _get(kind: str) -> Any:
@@ -161,8 +169,4 @@ async def transcribe_media(data: bytes, suffix: str = ".ogg") -> str:
         from .. import asr
 
         return await asr.transcribe_media(data, suffix)
-    if provider == "openrouter":
-        from .openrouter import OpenRouterSpeechToText
-
-        return await OpenRouterSpeechToText().transcribe_media(data, suffix)
     raise ValueError(f"ASR provider '{provider}' does not support media transcription")
